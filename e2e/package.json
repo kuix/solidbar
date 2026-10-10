@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "artwork": "playwright test -c artwork.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

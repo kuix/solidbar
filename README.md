@@ -1,29 +1,73 @@
-# Solidbar
+# Solidbar: a keyboard-first menu bar client for solidtime
 
-A menu bar client for [solidtime](https://www.solidtime.io), the open-source time tracker. macOS only, written in Rust ([Tauri 2](https://tauri.app) + [Leptos](https://leptos.dev)), modelled on Harvest's Mac app.
+[![CI](https://github.com/kuix/solidbar/actions/workflows/ci.yml/badge.svg)](https://github.com/kuix/solidbar/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/kuix/solidbar?label=download)](https://github.com/kuix/solidbar/releases/latest)
+[![License: MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
 
-Solidbar is not an official solidtime product.
+![Solidbar: the panel under the menu bar, with today's entries and a new entry being added](docs/images/cover.png)
+
+Solidbar puts [solidtime](https://www.solidtime.io), the open-source time tracker, in your Mac's menu bar: today's entries, the week at a glance, and a new entry a few keystrokes away.
+
+## Why
+
+The official [solidtime desktop app](https://github.com/solidtime-io/solidtime-desktop) is an Electron window: a lot of app for something you open dozens of times a day, with no global hotkey and few shortcuts. [@matkovsky](https://github.com/matkovsky) missed the keyboard shortcuts the most, so Solidbar does everything from the keyboard. It's a small panel under the menu bar, written in Rust and modelled on Harvest's Mac app.
 
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
 - **Fast entry.** `⌘N`, pick a recent project with `⌘1`–`⌘5` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. New entries continue where the day's last entry ended.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
+- **Simple timer.** `S` starts a timer like the selected entry (or stops the running one). The menu bar shows the running time, or today's total.
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
-- **Simple timer.** `S` starts a timer like the selected entry (or stops the running one). The menu bar shows the running time, or today's total.
 - **Keyboard and VoiceOver first.** Every action has a shortcut; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
 
-## Signing in
+Solidbar is not an official solidtime product.
 
-Solidbar signs in with OAuth 2 (authorization code + PKCE) in your browser.
+## Screenshots
 
-- **app.solidtime.io:** keep the defaults (the official desktop client ID with the `solidtime://` redirect). This needs Solidbar installed in `/Applications`; if the official solidtime desktop app is installed too, macOS may hand the sign-in to that app instead.
-- **Self-hosted:** create a public client with a local redirect and choose "Local address" with the same port:
+| Today | New entry | Settings |
+|---|---|---|
+| ![Today's entries with a running timer, and the week's daily totals](docs/images/today-light.png) | ![The entry form in dark mode, searching projects for "de"](docs/images/new-entry-dark.png) | ![Settings: account, organization, appearance and time format](docs/images/settings-light.png) |
 
-  ```sh
-  php artisan passport:client --public --name=Solidbar --redirect_uri=http://127.0.0.1:47821/callback
-  ```
+## Install
 
-Tokens are stored in the login keychain (debug builds use a private file instead, so rebuilds don't trigger keychain prompts).
+1. Download `Solidbar_<version>_universal.dmg` from the [latest release](https://github.com/kuix/solidbar/releases/latest).
+2. Open it and drag **Solidbar** to **Applications**.
+3. Start Solidbar. It lives in the menu bar (there's no Dock icon); click the clock or press `⌥⌘T`.
+
+Requires macOS 12 or later, on Apple silicon or Intel. Solidbar updates itself; see [Updates](#updates).
+
+## Sign in
+
+Solidbar signs in through your browser with OAuth 2 and PKCE: it creates a new one-time key pair (code verifier and challenge) for every sign-in, so there's no client secret or API token to copy. The tokens are kept in your login keychain.
+
+### app.solidtime.io
+
+Click **Use app.solidtime.io**, then **Sign in with browser**.
+
+### Self-hosted solidtime
+
+Your instance needs a public OAuth client for Solidbar. Create one where solidtime runs; with the [Docker setup](https://docs.solidtime.io/self-hosting/guides/docker):
+
+```sh
+docker compose exec scheduler php artisan passport:client \
+  --name=Solidbar --public -n \
+  --redirect_uri="http://127.0.0.1:47821/callback,solidtime://oauth/callback"
+```
+
+(Without Docker, run the same `php artisan passport:client …` in the solidtime directory.) The command prints the **client ID**. A public client has no secret, and with both redirect URIs either sign-in mode below works.
+
+Then, in Solidbar:
+
+1. **solidtime address:** your instance, e.g. `https://time.example.com`.
+2. **OAuth client ID:** the ID from the command.
+3. **How the browser returns to Solidbar:**
+   - **Local address (self-hosted):** the browser comes back to `http://127.0.0.1:47821/callback`. Recommended, and it works next to the official desktop app. The port must match the redirect URI.
+   - **solidtime:// link:** needs `solidtime://oauth/callback`. If the official solidtime desktop app is installed too, macOS may hand the sign-in to that app instead.
+4. **Sign in with browser**, approve Solidbar, and you're back in the panel. If you belong to several organizations, pick the one to work in.
+
+Already set up the official desktop app on your instance (`--name=desktop --redirect_uri=solidtime://oauth/callback`)? Its client ID works too, with the **solidtime:// link** option.
+
+The instance's own OAuth keys (`PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY`, from `php artisan self-host:generate-keys`) are part of setting up solidtime itself, not Solidbar.
 
 ## Keyboard shortcuts
 
@@ -65,7 +109,11 @@ cd e2e && npm ci && npx playwright install webkit && npx playwright test
 cargo tauri build --target universal-apple-darwin
 ```
 
+Debug builds keep the session in a private file instead of the keychain, so rebuilds don't trigger keychain prompts.
+
 macOS only delivers `solidtime://` links to an app bundle, so with `cargo tauri dev` sign in with "Local address"; otherwise the browser's redirect starts whichever bundle claims the scheme (another Solidbar build, or the official solidtime app).
+
+`cd e2e && npm run artwork` renders the README images (screenshots of the current UI, and the cover) into `docs/images`, and the DMG window background into `src-tauri/dmg`.
 
 `e2e/tests/release.spec.ts` runs a release build of the UI under the Content-Security-Policy from `tauri.conf.json`: the dev server doesn't apply the policy, so a mistake there would otherwise only show up as a blank panel in the packaged app.
 
@@ -81,7 +129,9 @@ Layout:
 
 1. Bump `version` in `Cargo.toml` (workspace) and `src-tauri/tauri.conf.json`.
 2. Push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The Release workflow builds a universal, signed and notarized DMG, the update archive and `latest.json`, and attaches them to a draft release. Publishing the draft makes the update available to everyone.
+3. The Release workflow builds the universal app, signs it with the Developer ID certificate, notarizes the app and the DMG (whose window says "drag Solidbar to Applications"), and attaches the DMG, the update archive and `latest.json` to a draft release. Publishing the draft makes the update available to everyone.
+
+To build a DMG without releasing, run the workflow by hand (Actions › Release › Run workflow); the DMG is attached to the run. Without the Apple secrets that build is unsigned.
 
 The workflow needs these repository secrets:
 
