@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- The DMG window background (660×400; Finder covers the bottom ~28 px with nothing, the title
+     bar sits above). Icons are placed by tauri.conf.json › bundle › macOS › dmg: Solidbar at
+     (180, 170), Applications at (480, 170), 128 px. Rendered by dmg.spec.ts. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Solidbar DMG background</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 660px;
+        height: 400px;
+        overflow: hidden;
+      }
+
+      body {
+        position: relative;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        background:
+          radial-gradient(420px 260px at 50% 0%, rgba(99, 102, 241, 0.14), transparent 70%),
+          linear-gradient(180deg, #fbfbfe 0%, #f1f0fa 100%);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+
+      .caption {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 292px;
+        text-align: center;
+        color: #2e2c45;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .hint {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 316px;
+        text-align: center;
+        color: #6e6c85;
+        font-size: 12.5px;
+      }
+
+      kbd {
+        padding: 0 5px;
+        border-radius: 4px;
+        background: rgba(79, 70, 229, 0.1);
+        font: inherit;
+        color: #4338ca;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="660" height="400" viewBox="0 0 660 400" aria-hidden="true">
+      <defs>
+        <marker id="head" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M1 1 L8 5 L1 9" fill="none" stroke="#6366f1" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </marker>
+      </defs>
+      <path d="M262 160 C 300 128, 360 128, 396 160" fill="none" stroke="#6366f1" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 9" marker-end="url(#head)" />
+    </svg>
+    <p class="caption">Drag Solidbar to Applications</p>
+    <p class="hint">Then open it from the menu bar, or press <kbd>⌥⌘T</kbd></p>
+  </body>
+</html>

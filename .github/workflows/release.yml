@@ -1,14 +1,22 @@
 name: Release
 
-# Push a tag like `v0.2.0` (matching the version in tauri.conf.json) to build a signed,
-# notarized universal DMG, create a draft GitHub Release with it, the update archive and
-# `latest.json`. The app updates once the draft is published.
+# Builds Solidbar as a universal app (Apple silicon and Intel), signed with the Developer ID
+# certificate and notarized, in a DMG whose window shows "drag Solidbar to Applications".
+#
+# - Push a tag like `v0.2.0` (matching `version` in src-tauri/tauri.conf.json): a draft GitHub
+#   Release with the DMG, the update archive and `latest.json` for the in-app updater.
+# - Actions › Release › Run workflow: the DMG as a workflow artifact. Without the Apple secrets
+#   the app is unsigned, which is still enough to check the build and the DMG window.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,34 +24,122 @@ env:
 jobs:
   release:
     runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # Developer ID Application certificate (.p12, base64), its password and its name; the
+      # bundler imports it into a temporary keychain.
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      # Notarization with an app-specific password.
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # Signs the update archive; the public key is in tauri.conf.json.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Lay out the DMG window (background, icon positions) in Finder; the bundler skips that
+      # on CI unless told otherwise.
+      TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+      BUNDLE: target/universal-apple-darwin/release/bundle
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the version and the secrets
+        id: version
+        run: |
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::The tag $GITHUB_REF_NAME doesn't match version $version in tauri.conf.json."
+              exit 1
+            fi
+            for secret in APPLE_CERTIFICATE APPLE_ID TAURI_SIGNING_PRIVATE_KEY; do
+              if [ -z "${!secret}" ]; then
+                echo "::error::Releases are signed and notarized; the $secret secret is missing (see README › Releasing)."
+                exit 1
+              fi
+            done
+          fi
+
+      # rust-toolchain.toml pins the toolchain and both macOS targets.
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: cargo-bins/cargo-binstall@v1.23.0
       - run: cargo binstall -y --locked trunk@0.21.14 tauri-cli@2.12.1
-      - uses: tauri-apps/tauri-action@v1
+
+      - name: Build, sign and notarize the app
+        run: |
+          args=(--target universal-apple-darwin)
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          else
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          fi
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::No Apple signing secrets, so this build is unsigned."
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+          fi
+          if [ -z "$APPLE_ID" ]; then
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          cargo tauri build "${args[@]}"
+
+      # The bundler notarizes the app; notarizing the DMG too lets Gatekeeper accept it offline.
+      - name: Notarize the DMG
+        if: env.APPLE_CERTIFICATE != '' && env.APPLE_ID != ''
+        run: |
+          dmg="$(ls "$BUNDLE"/dmg/*.dmg)"
+          xcrun notarytool submit "$dmg" --wait \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple "$dmg"
+
+      - name: Check the signatures
+        if: env.APPLE_CERTIFICATE != ''
+        run: |
+          codesign --verify --deep --strict --verbose=2 "$BUNDLE/macos/Solidbar.app"
+          codesign --display --verbose=2 "$BUNDLE/macos/Solidbar.app" 2>&1 | grep -E "^(Authority|TeamIdentifier)"
+          if [ -n "$APPLE_ID" ]; then
+            spctl --assess --type execute --verbose=2 "$BUNDLE/macos/Solidbar.app"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$BUNDLE"/dmg/*.dmg
+          fi
+
+      - name: Collect the files
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Developer ID Application certificate (.p12, base64) and its password.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Notarization with an app-specific password.
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Signs the update archives; the public key is in tauri.conf.json.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir dist
+          cp "$BUNDLE"/dmg/*.dmg dist/
+          archive="$BUNDLE/macos/Solidbar.app.tar.gz"
+          if [ -f "$archive" ]; then
+            name="Solidbar_${VERSION}_universal.app.tar.gz"
+            cp "$archive" "dist/$name"
+            cp "$archive.sig" "dist/$name.sig"
+            # The universal archive serves both architectures.
+            jq -n \
+              --arg version "$VERSION" \
+              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg signature "$(cat "$archive.sig")" \
+              --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$name" \
+              '{version: $version, pub_date: $date, notes: "See the release on GitHub.",
+                platforms: {
+                  "darwin-aarch64": {signature: $signature, url: $url},
+                  "darwin-x86_64": {signature: $signature, url: $url}
+                }}' > dist/latest.json
+          fi
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
         with:
-          tauriScript: cargo tauri
-          # Update archives need the signing key, so only release builds make them.
-          args: >-
-            --target universal-apple-darwin
-            --config '{"bundle":{"createUpdaterArtifacts":true}}'
-          tagName: ${{ github.ref_name }}
-          releaseName: Solidbar ${{ github.ref_name }}
-          releaseDraft: true
-          uploadUpdaterJson: true
-          generateReleaseNotes: true
+          name: Solidbar-${{ steps.version.outputs.version }}-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Create a draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --draft --generate-notes --title "Solidbar $GITHUB_REF_NAME"
