@@ -43,7 +43,7 @@ jobs:
       TAURI_BUNDLER_DMG_IGNORE_CI: "true"
       BUNDLE: target/universal-apple-darwin/release/bundle
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the version and the secrets
         id: version
@@ -130,7 +130,7 @@ jobs:
           fi
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Solidbar-${{ steps.version.outputs.version }}-dmg
           path: dist/*.dmg
