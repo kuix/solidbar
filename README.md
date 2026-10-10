@@ -139,7 +139,7 @@ The workflow needs these repository secrets:
 |---|---|
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | Developer ID Application certificate, exported as `.p12` and base64-encoded, and its password |
 | `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Apple ID, an app-specific password for it, and the team ID, for notarization |
+| `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `APPLE_API_PRIVATE_KEY` | An App Store Connect team API key for notarization (Users and Access › Integrations › Team Keys, Developer access): its key ID, the issuer ID and the contents of the `.p8` file |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The update signing key (`cargo tauri signer generate`) and its password; the public key is in `tauri.conf.json` |
 
 Losing the update signing key means existing installs can't update any more, so keep a copy somewhere safe.
