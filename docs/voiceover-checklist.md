@@ -1,0 +1,54 @@
+# VoiceOver checklist
+
+Automated checks (axe in `e2e/`) catch missing labels and contrast problems. They can't tell whether the panel is pleasant to use with a screen reader, so run through this before each release with VoiceOver on (`⌘F5`).
+
+Use a build installed in `/Applications`, with System Settings › Accessibility › Display › "Increase contrast" and "Reduce motion" off for the first pass and on for a second pass.
+
+## Menu bar
+
+- [ ] VO reads the menu bar item as "Solidbar" with "Today: 6:30" (or "Timer running: Project, 0:42") as its description.
+- [ ] `⌥⌘T` opens the panel and VO lands on today's first entry (or on today's tab when the day is empty).
+- [ ] `⎋` closes the panel and VO is back in the app you came from.
+
+## Week strip and list
+
+- [ ] Tabbing reaches, in order: previous week, next week, Today, Keep open, Settings, the selected day tab, the selected entry, New entry.
+- [ ] Day tabs read as "Friday, Oct 9, 2 hours, today, selected, tab, 5 of 7".
+- [ ] `←`/`→` on a day tab move to the neighbouring day and VO announces it.
+- [ ] Entries read as one sentence: project › task, client, notes, duration, start and end, billable.
+- [ ] `↑`/`↓` move between entries; VO reads each one.
+- [ ] VO announces the keyboard shortcuts of an entry (aria-keyshortcuts) with the hint delay.
+- [ ] `⌘=` announces "Added 1 hour" (and how many later entries moved); the duration updates.
+- [ ] `⌫` moves focus to "Delete ↩"; `⎋` returns to the entry; `↩` deletes and announces "Time entry deleted".
+- [ ] `S` announces "Timer started"; the row reads "timer running".
+- [ ] Going offline (turn off Wi-Fi, wait a minute) shows and reads the offline notice; the ±1h and timer buttons are dimmed and read as dimmed.
+
+## Entry form
+
+- [ ] `⌘N` opens the form; VO reads "New time entry · Friday, Oct 9" and lands on "Project and task, No project, pop-up button".
+- [ ] `Space` opens the list on the current choice, in "Search projects and tasks, combo box"; `⎋` closes it and VO is back on the pop-up button.
+- [ ] Typing on the pop-up button opens the search with that letter; VO reads the number of results; `↓`/`↑` read each option; `↩` picks it and returns to the button, which reads the new choice.
+- [ ] `⌘1`/`⌘2` pick recent projects; VO reads the new value of the pop-up button.
+- [ ] `⌥2` selects "2 hours" (button reads as selected) and fills the duration.
+- [ ] An invalid duration reads as invalid with its error message.
+- [ ] `↩` saves, VO announces "Added 2 hours", and focus returns to the list.
+- [ ] `⎋` (with the list closed) cancels and focus returns to the entry it came from.
+
+- [ ] "Start" reads as a text field with its time; `↑`/`↓` change it by 15 minutes and VO reads the new time; an invalid time reads as invalid with "Enter a time like 09:30".
+
+## Settings and sign-in
+
+- [ ] Signing in to several organizations lands on "Choose an organization" with the first one focused; `↑`/`↓` move, `↩` chooses and focus goes to today's first entry.
+- [ ] `⌘O` opens Settings on "Organization for new entries".
+- [ ] "Time format" reads as a radio group; switching it changes the times in the list and the form.
+
+- [ ] Each shortcut reads as e.g. "Show or hide Solidbar ⌥⌘T, button"; after activating it, pressing a new combination saves it, `⎋` cancels.
+- [ ] Theme options read as a radio group "Appearance".
+- [ ] "Check for updates" reads the current version as its description; after activating it, VO announces "Solidbar is up to date" (or the new version) and focus stays on the button.
+- [ ] The sign-in form's fields have labels, the redirect URI is read with the port field, and errors are announced right away.
+
+## Visual
+
+- [ ] Light, dark, "Increase contrast" and "Reduce transparency": all text is readable, focus rings are visible.
+- [ ] "Reduce motion": no pulsing dot on a running entry, no toast animation.
+- [ ] Larger text (System Settings › Accessibility › Display › Text size, where supported) doesn't clip entry rows.

@@ -1,0 +1,659 @@
+//! The entry form (new and edit), with the project/task picker.
+
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use solidbar_shared::duration::parse_minutes;
+use solidbar_shared::fuzzy;
+use solidbar_shared::ipc::{EntryDraft, SaveEntry};
+use solidbar_shared::view::{FormInit, WorkOption};
+use wasm_bindgen::JsCast;
+use web_sys::KeyboardEvent;
+
+use crate::icons;
+use crate::ipc::call;
+use crate::keymap::{Keys, focus_element};
+use crate::store::Store;
+use crate::time_field::TimeField;
+
+/// The selected project and task.
+type Work = (Option<String>, Option<String>);
+
+#[component]
+pub fn EntryForm(init: FormInit) -> impl IntoView {
+    let store = expect_context::<Store>();
+    let editing = init.entry_id.is_some();
+    let running = init.running;
+    let day_label = store
+        .with_app(|app| {
+            app.week
+                .as_ref()?
+                .days
+                .iter()
+                .find(|day| day.date == init.date)
+                .map(|day| day.label.clone())
+        })
+        .flatten()
+        .unwrap_or_else(|| init.date.clone());
+    let title = match (editing, running) {
+        (true, true) => "Edit running timer",
+        (true, false) => "Edit time entry",
+        (false, _) => "New time entry",
+    };
+
+    let work = RwSignal::new((init.project_id.clone(), init.task_id.clone()));
+    let description = RwSignal::new(init.description.clone());
+    let duration = RwSignal::new(init.duration.clone());
+    let start_time = RwSignal::new(init.start_time.clone());
+    let billable = RwSignal::new(init.billable);
+    let error = RwSignal::new(None::<String>);
+    let saving = RwSignal::new(false);
+    let attempted = RwSignal::new(false);
+    let recents = Memo::new(move |_| store.catalog.with(|catalog| catalog.recents.clone()));
+
+    let duration_problem = Memo::new(move |_| {
+        let text = duration.get();
+        if running || (text.trim().is_empty() && !attempted.get()) {
+            return None;
+        }
+        parse_minutes(&text)
+            .err()
+            .map(|problem| problem.to_string())
+    });
+
+    let pick = Callback::new(move |option: WorkOption| {
+        work.set((option.project_id, option.task_id));
+        if !editing {
+            billable.set(option.billable);
+        }
+    });
+
+    let entry_id = init.entry_id.clone();
+    let date = init.date.clone();
+    let submit = Callback::new(move |start_timer: bool| {
+        if saving.get_untracked() {
+            return;
+        }
+        attempted.set(true);
+        let start_timer = start_timer && !editing;
+        let duration_text = duration.get_untracked();
+        let duration_optional = running || (start_timer && duration_text.trim().is_empty());
+        if !duration_optional && let Err(problem) = parse_minutes(&duration_text) {
+            error.set(Some(problem.to_string()));
+            focus_element("duration");
+            return;
+        }
+        if start_time.with_untracked(String::is_empty) {
+            error.set(Some("Enter when the entry starts".to_owned()));
+            focus_element("start-time");
+            return;
+        }
+        let (project_id, task_id) = work.get_untracked();
+        let draft = EntryDraft {
+            id: entry_id.clone(),
+            date: date.clone(),
+            project_id,
+            task_id,
+            description: description.get_untracked(),
+            billable: billable.get_untracked(),
+            duration: duration_text,
+            start_time: start_time.get_untracked(),
+            start_timer,
+        };
+        saving.set(true);
+        error.set(None);
+        spawn_local(async move {
+            match call::<SaveEntry>(&draft).await {
+                Ok(()) => store.close_form(),
+                Err(problem) => {
+                    error.set(Some(problem.message));
+                    saving.set(false);
+                }
+            }
+        });
+    });
+
+    let on_keydown = move |event: KeyboardEvent| {
+        if event.default_prevented() || event.is_composing() {
+            return;
+        }
+        let keys = Keys::of(&event);
+        let target = event
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::Element>().ok());
+        let target_tag = target
+            .as_ref()
+            .map(|element| element.tag_name())
+            .unwrap_or_default();
+        let target_id = target
+            .as_ref()
+            .map(|element| element.id())
+            .unwrap_or_default();
+        let handled = if keys.alt && !keys.meta && !keys.control {
+            match keys.digit() {
+                Some(hours @ 1..=8) if !running => {
+                    duration.set(format!("{hours}:00"));
+                    true
+                }
+                _ => false,
+            }
+        } else if keys.meta && !keys.alt && !keys.control && keys.digit().is_some() {
+            let index = keys.digit().unwrap_or_default() as usize;
+            match recents.get_untracked().get(index.wrapping_sub(1)) {
+                Some(option) => {
+                    pick.run(option.clone());
+                    true
+                }
+                None => false,
+            }
+        } else if keys.is("Meta+Enter") {
+            submit.run(true);
+            true
+        } else if keys.is("Enter") && (target_tag != "BUTTON" || target_id == "work-button") {
+            submit.run(false);
+            true
+        } else {
+            false
+        };
+        if handled {
+            event.prevent_default();
+        }
+    };
+
+    // On the window rather than the form: tabbing past the last text field (without macOS
+    // Keyboard navigation) leaves focus on the page, and the shortcuts must still work.
+    let keys = window_event_listener(leptos::ev::keydown, on_keydown);
+    on_cleanup(move || keys.remove());
+
+    request_animation_frame(|| {
+        focus_element("work-button");
+    });
+
+    let delete_id = init.entry_id.clone();
+    view! {
+        <form
+            class="entry-form"
+            aria-labelledby="form-title"
+            on:submit=|event| event.prevent_default()
+        >
+            // Only the fields scroll; the buttons stay at the bottom of the panel.
+            <div class="form-body" on:scroll=|_| place_work_popup()>
+                <h2 id="form-title">
+                    {title} <span class="form-day">{format!(" · {day_label}")}</span>
+                </h2>
+                <Show when=move || recents.with(|recents| !recents.is_empty())>
+                    <div class="recents" role="group" aria-label="Recent projects">
+                        <For
+                            each=move || recents.get().into_iter().enumerate()
+                            key=|(index, option)| (*index, option.clone())
+                            let:item
+                        >
+                            <RecentButton number=item.0 + 1 option=item.1 pick />
+                        </For>
+                    </div>
+                </Show>
+                <WorkPicker work pick />
+                <label for="notes">"Notes"</label>
+                <textarea
+                    id="notes"
+                    rows="2"
+                    aria-describedby="notes-help"
+                    prop:value=description
+                    on:input=move |event| description.set(event_target_value(&event))
+                ></textarea>
+                <p id="notes-help" class="help">"⇧↩ for a new line"</p>
+                <Show when=move || !running>
+                    <fieldset class="duration-field">
+                        <legend>"Duration"</legend>
+                        <div class="chips">
+                            {(1..=8u32)
+                                .map(|hours| {
+                                    view! {
+                                        <button
+                                            type="button"
+                                            class="chip"
+                                            aria-label=format!("{hours} hour{}", if hours == 1 { "" } else { "s" })
+                                            aria-keyshortcuts=format!("Alt+{hours}")
+                                            aria-pressed=move || {
+                                                (parse_minutes(&duration.get()) == Ok(hours * 60)).to_string()
+                                            }
+                                            on:click=move |_| duration.set(format!("{hours}:00"))
+                                        >
+                                            {format!("{hours}h")}
+                                        </button>
+                                    }
+                                })
+                                .collect_view()}
+                        </div>
+                        <input
+                            id="duration"
+                            type="text"
+                            inputmode="decimal"
+                            autocomplete="off"
+                            placeholder="1:30, 1.5 or 90m"
+                            aria-label="Duration"
+                            aria-describedby="duration-help"
+                            aria-invalid=move || duration_problem.get().is_some().to_string()
+                            aria-errormessage="duration-error"
+                            prop:value=duration
+                            on:input=move |event| duration.set(event_target_value(&event))
+                        />
+                        <p id="duration-help" class="help">"⌥1–⌥8 for whole hours"</p>
+                        {move || {
+                            duration_problem
+                                .get()
+                                .map(|problem| view! { <p id="duration-error" class="field-error">{problem}</p> })
+                        }}
+                    </fieldset>
+                </Show>
+                <div class="form-row">
+                    <label for="start-time">"Start"</label>
+                    <TimeField id="start-time" value=start_time />
+                    <label class="switch">
+                        <input
+                            type="checkbox"
+                            role="switch"
+                            prop:checked=billable
+                            on:change=move |event| billable.set(event_target_checked(&event))
+                        />
+                        "Billable"
+                    </label>
+                </div>
+            </div>
+            <div class="form-footer">
+                {move || error.get().map(|error| view! { <p class="error" role="alert">{error}</p> })}
+                <div class="actions">
+                    <button
+                        type="button"
+                        class="primary"
+                        aria-keyshortcuts="Enter"
+                        prop:disabled=saving
+                        on:click=move |_| submit.run(false)
+                    >
+                        "Save"
+                        <kbd aria-hidden="true">"↩"</kbd>
+                    </button>
+                    <Show when=move || !editing>
+                        <button
+                            type="button"
+                            aria-keyshortcuts="Meta+Enter"
+                            prop:disabled=saving
+                            on:click=move |_| submit.run(true)
+                        >
+                            "Start timer"
+                            <kbd aria-hidden="true">"⌘↩"</kbd>
+                        </button>
+                    </Show>
+                    {delete_id
+                        .clone()
+                        .map(|id| {
+                            view! {
+                                <button
+                                    type="button"
+                                    class="danger"
+                                    on:click=move |_| {
+                                        store.close_form();
+                                        store.ask_delete(id.clone());
+                                    }
+                                >
+                                    "Delete"
+                                </button>
+                            }
+                        })}
+                    <button type="button" aria-keyshortcuts="Escape" on:click=move |_| store.close_form()>
+                        "Cancel"
+                        <kbd aria-hidden="true">"⎋"</kbd>
+                    </button>
+                </div>
+            </div>
+        </form>
+    }
+}
+
+#[component]
+fn RecentButton(number: usize, option: WorkOption, pick: Callback<WorkOption>) -> impl IntoView {
+    let color = option
+        .color
+        .clone()
+        .unwrap_or_else(|| "var(--no-project)".to_owned());
+    let label = option.label.clone();
+    let title = format!("{label} (⌘{number})");
+    view! {
+        <button
+            type="button"
+            class="recent"
+            aria-keyshortcuts=format!("Meta+{number}")
+            title=title
+            on:click=move |_| pick.run(option.clone())
+        >
+            <kbd aria-hidden="true">{format!("⌘{number}")}</kbd>
+            <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+            <span class="recent-label">{label}</span>
+        </button>
+    }
+}
+
+/// Puts the open project list under its button. The list is `position: fixed` so the
+/// scrolling form body doesn't clip it; it follows the button when the body scrolls.
+fn place_work_popup() {
+    let element = |id| {
+        document()
+            .get_element_by_id(id)
+            .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
+    };
+    let (Some(button), Some(popup)) = (element("work-button"), element("work-popup")) else {
+        return;
+    };
+    if popup.has_attribute("hidden") {
+        return;
+    }
+    let rect = button.get_bounding_client_rect();
+    let height = window()
+        .inner_height()
+        .ok()
+        .and_then(|height| height.as_f64())
+        .unwrap_or(520.0);
+    // What's left under the button, less the search field and the popup's padding.
+    let list_height = (height - rect.bottom() - 64.0).clamp(80.0, 220.0);
+    let style = popup.style();
+    for (property, value) in [
+        ("top", rect.bottom() + 4.0),
+        ("left", rect.left()),
+        ("width", rect.width()),
+        ("--list-height", list_height),
+    ] {
+        let _ = style.set_property(property, &format!("{value}px"));
+    }
+}
+
+/// The project and task as a pop-up button, like a `<select>`, whose list has a search field
+/// (an APG editable combobox; `aria-activedescendant` points at the highlighted option).
+/// Space, ↓ or a click opens it; typing on the closed button opens it and starts searching, so
+/// ⌘N, "rand", ↩ works. ↩ on the closed button saves the form, as everywhere else in it.
+#[component]
+fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView {
+    let store = expect_context::<Store>();
+    let options = Memo::new(move |_| store.catalog.with(|catalog| catalog.options.clone()));
+    let query = RwSignal::new(String::new());
+    let open = RwSignal::new(false);
+    let active = RwSignal::new(0usize);
+
+    let is_selected = move |option: &WorkOption| {
+        work.with_untracked(|(project_id, task_id)| {
+            option.project_id == *project_id && option.task_id == *task_id
+        })
+    };
+    let selected = Memo::new(move |_| {
+        work.track();
+        options
+            .with(|options| options.iter().find(|option| is_selected(option)).cloned())
+            .unwrap_or_else(|| {
+                let project_id = work.with_untracked(|(project_id, _)| project_id.clone());
+                WorkOption {
+                    label: if project_id.is_some() {
+                        "Unknown project"
+                    } else {
+                        "No project"
+                    }
+                    .to_owned(),
+                    project_id,
+                    task_id: None,
+                    client_name: None,
+                    color: None,
+                    billable: false,
+                }
+            })
+    });
+    let matches = Memo::new(move |_| {
+        let query = query.get();
+        options.with(|options| {
+            let haystacks: Vec<String> = options
+                .iter()
+                .map(|option| match &option.client_name {
+                    Some(client) => format!("{} {client}", option.label),
+                    None => option.label.clone(),
+                })
+                .collect();
+            fuzzy::rank(&query, haystacks.iter().map(String::as_str))
+                .into_iter()
+                .take(50)
+                .map(|index| options[index].clone())
+                .collect::<Vec<_>>()
+        })
+    });
+
+    let open_with = move |text: String| {
+        query.set(text.clone());
+        // Without a search, start on the current choice.
+        let start = if text.is_empty() {
+            matches
+                .with_untracked(|matches| matches.iter().position(is_selected))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        active.set(start);
+        open.set(true);
+        // Show the list and focus its search field right away rather than after the next
+        // render, so the keys typed after the first one land in it.
+        if let Some(popup) = document().get_element_by_id("work-popup") {
+            let _ = popup.remove_attribute("hidden");
+        }
+        place_work_popup();
+        if let Some(search) = document()
+            .get_element_by_id("work-search")
+            .and_then(|element| element.dyn_into::<web_sys::HtmlInputElement>().ok())
+        {
+            search.set_value(&text);
+            let _ = search.focus();
+        }
+    };
+    let close = move |refocus: bool| {
+        open.set(false);
+        query.set(String::new());
+        if refocus {
+            focus_element("work-button");
+        }
+    };
+    let choose = move |option: WorkOption| {
+        pick.run(option);
+        close(true);
+    };
+
+    // A recent pair picked with ⌘1–⌘5 while the list is open closes it.
+    Effect::new(move |previous: Option<()>| {
+        work.track();
+        if previous.is_some() && open.get_untracked() {
+            close(true);
+        }
+    });
+
+    // Keep the highlighted option visible while moving through a long list.
+    Effect::new(move |_| {
+        if !open.get() {
+            return;
+        }
+        let id = format!("work-option-{}", active.get());
+        request_animation_frame(move || {
+            if let Some(element) = document().get_element_by_id(&id) {
+                let options = web_sys::ScrollIntoViewOptions::new();
+                options.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                element.scroll_into_view_with_scroll_into_view_options(&options);
+            }
+        });
+    });
+
+    let on_button_keydown = move |event: KeyboardEvent| {
+        if event.is_composing() {
+            return;
+        }
+        let keys = Keys::of(&event);
+        let key = event.key();
+        let plain = !keys.meta && !keys.control && !keys.alt;
+        let handled = if keys.is("Space")
+            || keys.is("ArrowDown")
+            || keys.is("ArrowUp")
+            || keys.is("Alt+ArrowDown")
+        {
+            open_with(String::new());
+            true
+        } else if plain && key.chars().count() == 1 {
+            open_with(key);
+            true
+        } else {
+            false
+        };
+        if handled {
+            event.prevent_default();
+            event.stop_propagation();
+        }
+    };
+
+    let on_search_keydown = move |event: KeyboardEvent| {
+        if event.is_composing() {
+            return;
+        }
+        let keys = Keys::of(&event);
+        let count = matches.with_untracked(Vec::len);
+        let handled = if keys.is("ArrowDown") {
+            active.update(|index| *index = (*index + 1).min(count.saturating_sub(1)));
+            true
+        } else if keys.is("ArrowUp") {
+            active.update(|index| *index = index.saturating_sub(1));
+            true
+        } else if keys.is("Enter") {
+            if let Some(option) =
+                matches.with_untracked(|matches| matches.get(active.get_untracked()).cloned())
+            {
+                choose(option);
+            }
+            true
+        } else if keys.is("Escape") {
+            close(true);
+            true
+        } else {
+            false
+        };
+        if handled {
+            event.prevent_default();
+            event.stop_propagation();
+        }
+    };
+
+    view! {
+        <div class="work-picker">
+            <span id="work-label" class="label">"Project and task"</span>
+            <button
+                type="button"
+                id="work-button"
+                class="select-button"
+                aria-haspopup="listbox"
+                aria-expanded=move || open.get().to_string()
+                aria-labelledby="work-label work-value"
+                on:mousedown=move |event| {
+                    // Keep focus in the search field, so the click closes the list.
+                    if open.get_untracked() {
+                        event.prevent_default();
+                    }
+                }
+                on:click=move |_| {
+                    if open.get_untracked() {
+                        close(true);
+                    } else {
+                        open_with(String::new());
+                    }
+                }
+                on:keydown=on_button_keydown
+            >
+                {move || {
+                    let option = selected.get();
+                    let color = option.color.unwrap_or_else(|| "var(--no-project)".to_owned());
+                    view! {
+                        <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+                        <span id="work-value" class="value">
+                            {option.label}
+                            {option.client_name.map(|client| view! { <span class="client">{format!(" · {client}")}</span> })}
+                        </span>
+                    }
+                }}
+                <span class="chevron">{icons::chevron_up_down()}</span>
+            </button>
+            <div id="work-popup" class="work-popup" hidden=move || !open.get()>
+                <input
+                    id="work-search"
+                    type="text"
+                    role="combobox"
+                    aria-label="Search projects and tasks"
+                    aria-autocomplete="list"
+                    aria-expanded=move || open.get().to_string()
+                    aria-controls="work-listbox"
+                    aria-activedescendant=move || {
+                        (open.get() && matches.with(|matches| !matches.is_empty()))
+                            .then(|| format!("work-option-{}", active.get()))
+                    }
+                    placeholder="Search projects, tasks and clients"
+                    autocomplete="off"
+                    spellcheck="false"
+                    prop:value=query
+                    on:input=move |event| {
+                        query.set(event_target_value(&event));
+                        active.set(0);
+                    }
+                    on:blur=move |_| {
+                        if open.get_untracked() {
+                            close(false);
+                        }
+                    }
+                    on:keydown=on_search_keydown
+                />
+                <ul id="work-listbox" role="listbox" aria-label="Projects and tasks" class="listbox">
+                    <For
+                        each=move || matches.get().into_iter().enumerate()
+                        key=|(index, option)| (*index, option.clone())
+                        let:item
+                    >
+                        {
+                            let (index, option) = item;
+                            let color = option.color.clone().unwrap_or_else(|| "var(--no-project)".to_owned());
+                            let label = option.label.clone();
+                            let client = option.client_name.clone();
+                            let current = is_selected(&option);
+                            view! {
+                                <li
+                                    role="option"
+                                    id=format!("work-option-{index}")
+                                    class:active=move || active.get() == index
+                                    aria-selected=move || (active.get() == index).to_string()
+                                    on:mousedown=|event| event.prevent_default()
+                                    on:click=move |_| choose(option.clone())
+                                >
+                                    <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+                                    <span class="option-label">{label}</span>
+                                    {client.map(|client| view! { <span class="client">{client}</span> })}
+                                    <span class="current" aria-hidden="true">
+                                        {current.then(icons::check)}
+                                    </span>
+                                </li>
+                            }
+                        }
+                    </For>
+                    <Show when=move || matches.with(Vec::is_empty)>
+                        <li class="empty" role="presentation">"No matching projects"</li>
+                    </Show>
+                </ul>
+                <p class="sr-only" aria-live="polite">
+                    {move || {
+                        if open.get() {
+                            match matches.with(Vec::len) {
+                                0 => "No matching projects".to_owned(),
+                                1 => "1 result".to_owned(),
+                                count => format!("{count} results"),
+                            }
+                        } else {
+                            String::new()
+                        }
+                    }}
+                </p>
+            </div>
+        </div>
+    }
+}

@@ -1,0 +1,99 @@
+//! Preferences stored on this Mac.
+
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::clock::ClockFormat;
+use crate::instance::InstanceSettings;
+use crate::shortcuts::GlobalAction;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    System,
+    Dark,
+    Light,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub instance: InstanceSettings,
+    /// The membership (organization) new entries go to.
+    pub active_membership_id: Option<String>,
+    /// `HH:MM`; where the first entry of an empty day starts.
+    pub workday_start: String,
+    pub theme: Theme,
+    /// 24- or 12-hour times; by default like macOS.
+    pub clock: ClockFormat,
+    /// Show the timer or today's total next to the menu bar icon.
+    pub menu_bar_text: bool,
+    /// Accelerators per global action; `None` disables the shortcut.
+    pub shortcuts: BTreeMap<GlobalAction, Option<String>>,
+    pub launch_at_login_offered: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            instance: InstanceSettings::default(),
+            active_membership_id: None,
+            workday_start: "09:00".to_owned(),
+            theme: Theme::System,
+            clock: ClockFormat::System,
+            menu_bar_text: true,
+            shortcuts: GlobalAction::ALL
+                .into_iter()
+                .map(|action| (action, Some(action.default_accelerator().to_owned())))
+                .collect(),
+            launch_at_login_offered: false,
+        }
+    }
+}
+
+impl Settings {
+    pub fn shortcut(&self, action: GlobalAction) -> Option<&str> {
+        match self.shortcuts.get(&action) {
+            Some(accelerator) => accelerator.as_deref(),
+            None => Some(action.default_accelerator()),
+        }
+    }
+}
+
+/// A partial update from the settings view; `None` fields stay unchanged.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SettingsPatch {
+    pub workday_start: Option<String>,
+    pub theme: Option<Theme>,
+    pub clock: Option<ClockFormat>,
+    pub menu_bar_text: Option<bool>,
+    pub launch_at_login_offered: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_fields_fall_back_to_defaults() {
+        let settings: Settings = serde_json::from_str(r#"{ "theme": "dark" }"#).unwrap();
+        assert_eq!(settings.theme, Theme::Dark);
+        assert_eq!(settings.workday_start, "09:00");
+        assert_eq!(
+            settings.shortcut(GlobalAction::TogglePanel),
+            Some("Alt+Super+KeyT")
+        );
+    }
+
+    #[test]
+    fn a_disabled_shortcut_stays_disabled() {
+        let mut settings = Settings::default();
+        settings.shortcuts.insert(GlobalAction::NewEntry, None);
+        let round_trip: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(round_trip.shortcut(GlobalAction::NewEntry), None);
+    }
+}

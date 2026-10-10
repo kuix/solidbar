@@ -1,0 +1,49 @@
+name: Release
+
+# Push a tag like `v0.2.0` (matching the version in tauri.conf.json) to build a signed,
+# notarized universal DMG, create a draft GitHub Release with it, the update archive and
+# `latest.json`. The app updates once the draft is published.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: cargo-bins/cargo-binstall@v1.23.0
+      - run: cargo binstall -y --locked trunk@0.21.14 tauri-cli@2.12.1
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Developer ID Application certificate (.p12, base64) and its password.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Notarization with an app-specific password.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Signs the update archives; the public key is in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: cargo tauri
+          # Update archives need the signing key, so only release builds make them.
+          args: >-
+            --target universal-apple-darwin
+            --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          tagName: ${{ github.ref_name }}
+          releaseName: Solidbar ${{ github.ref_name }}
+          releaseDraft: true
+          uploadUpdaterJson: true
+          generateReleaseNotes: true

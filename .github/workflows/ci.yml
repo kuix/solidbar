@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the toolchain, components and targets.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (native)
+        run: cargo clippy --workspace --exclude solidbar-ui --all-targets -- -D warnings
+      - name: Clippy (UI, wasm32)
+        run: cargo clippy -p solidbar-ui --target wasm32-unknown-unknown -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
+  e2e:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: cargo-bins/cargo-binstall@v1.23.0
+      - run: cargo binstall -y --locked trunk@0.21.14
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      - run: npx playwright install webkit
+      - name: UI flows and accessibility (axe, WCAG 2.2 AA)
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: e2e/test-results

@@ -1,0 +1,20 @@
+[package]
+name = "solidbar-ui"
+description = "Leptos (CSR) user interface of Solidbar, rendered in the Tauri WKWebView"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solidbar-shared.workspace = true
+serde.workspace = true
+jiff.workspace = true
+leptos = { version = "0.8.22", features = ["csr"] }
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.106", features = ["console", "CssStyleDeclaration", "Document", "DomRect", "DomTokenList", "Element", "Event", "EventTarget", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "ScrollIntoViewOptions", "ScrollLogicalPosition", "Window"] }
+serde-wasm-bindgen = "0.6.5"
+console_error_panic_hook = "0.1.7"

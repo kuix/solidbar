@@ -1,0 +1,16 @@
+[package]
+name = "solidbar-shared"
+description = "Types and pure logic shared by the Solidbar backend (native) and UI (wasm32)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+jiff.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
