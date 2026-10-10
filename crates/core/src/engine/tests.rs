@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use solidbar_shared::instance::{InstanceSettings, RedirectMode};
 use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FormArgs, TimerSource};
 use solidbar_shared::settings::Settings;
-use solidbar_shared::view::{AppView, AuthView, Catalog, Notice};
+use solidbar_shared::view::{AppView, AuthView, Catalog, EntryKind, Notice};
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -216,6 +216,8 @@ async fn signed_in_with_week(server: &MockServer, entries: Vec<Value>) -> Harnes
 fn draft(start_time: &str, duration: &str) -> EntryDraft {
     EntryDraft {
         id: None,
+        group_ids: Vec::new(),
+        kind: EntryKind::Work,
         date: "2026-10-09".to_owned(),
         project_id: Some("p1".to_owned()),
         task_id: Some("t1".to_owned()),
@@ -359,6 +361,7 @@ async fn new_entries_stack_after_the_last_one_of_the_day() {
         .prepare_form(&FormArgs {
             date: "2026-10-09".to_owned(),
             entry_id: None,
+            group_ids: Vec::new(),
         })
         .unwrap();
     assert_eq!(form.start_time, "11:00");
@@ -601,6 +604,280 @@ async fn continuing_an_entry_stops_the_running_timer_first() {
         friday.entries.iter().filter(|entry| entry.running).count(),
         1
     );
+}
+
+fn break_entry(id: &str, start: &str, end: Option<&str>) -> Value {
+    json!({
+        "id": id, "start": start, "end": end, "duration": null, "description": null,
+        "task_id": null, "project_id": null, "organization_id": ORG, "user_id": "u1",
+        "tags": [], "billable": false, "type": "break",
+    })
+}
+
+async fn mount_breaks(server: &MockServer, enabled: bool) {
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v1/organizations/{ORG}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": {
+            "id": ORG, "name": "Kuix", "currency": "EUR", "breaks_enabled": enabled,
+        }})))
+        .mount(server)
+        .await;
+}
+
+/// Signed in with a running timer (or none) and the week's entries.
+async fn signed_in_with_timer(
+    server: &MockServer,
+    breaks: bool,
+    active: Option<Value>,
+    entries: Vec<Value>,
+) -> Harness {
+    mount_profile(server).await;
+    mount_breaks(server, breaks).await;
+    mount_active(server, active).await;
+    mount_week(server, entries).await;
+    let harness = harness(server, RedirectMode::DeepLink, true, |_| {});
+    harness.engine.refresh(false).await.unwrap();
+    harness
+}
+
+#[tokio::test]
+async fn taking_a_break_stops_work_and_starts_the_break_at_the_same_instant() {
+    let server = MockServer::start().await;
+    let live = entry("live", "2026-10-09T08:00:00Z", None);
+    let harness = signed_in_with_timer(&server, true, Some(live.clone()), vec![live]).await;
+    assert!(harness.sink.last().breaks_enabled);
+
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "/api/v1/organizations/{ORG}/time-entries/live"
+        )))
+        .and(body_json(
+            json!({ "start": "2026-10-09T08:00:00Z", "end": NOW }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": entry("live", "2026-10-09T08:00:00Z", Some(NOW)),
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/v1/organizations/{ORG}/time-entries")))
+        .and(body_json(json!({
+            "member_id": MEMBER, "start": NOW, "end": null, "billable": false,
+            "project_id": null, "task_id": null, "description": null, "type": "break",
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "data": break_entry("pause", NOW, None),
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    harness.engine.start_break().await.unwrap();
+    let view = harness.sink.last();
+    let timer = view.timer.unwrap();
+    assert_eq!(timer.kind, EntryKind::Break);
+    assert_eq!(timer.resume_label.as_deref(), Some("Design system"));
+    assert_eq!(view.tray.title.as_deref(), Some("☕ 0:00"));
+    assert_eq!(view.tray.tooltip, "On a break, 0:00");
+    assert_eq!(harness.sink.notices().last().unwrap().text, "Break started");
+}
+
+#[tokio::test]
+async fn after_a_break_the_timer_shortcut_resumes_the_work_before_it() {
+    let server = MockServer::start().await;
+    let mut work = entry("work", "2026-10-09T07:00:00Z", Some("2026-10-09T09:00:00Z"));
+    work["description"] = json!("Header");
+    work["task_id"] = json!("t1");
+    let pause = break_entry("pause", "2026-10-09T09:00:00Z", None);
+    let harness = signed_in_with_timer(&server, true, Some(pause.clone()), vec![work, pause]).await;
+    let view = harness.sink.last();
+    assert_eq!(view.timer.unwrap().resume_label.as_deref(), Some("Header"));
+    // The break is neither work time nor part of today's total.
+    let friday = &view.week.unwrap().days[4];
+    assert_eq!(friday.total_seconds, 2 * 3600);
+    assert_eq!(friday.break_seconds, 3600);
+    assert_eq!(friday.entries[1].kind, EntryKind::Break);
+
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "/api/v1/organizations/{ORG}/time-entries/pause"
+        )))
+        .and(body_json(
+            json!({ "start": "2026-10-09T09:00:00Z", "end": NOW }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": break_entry("pause", "2026-10-09T09:00:00Z", Some(NOW)),
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/v1/organizations/{ORG}/time-entries")))
+        .and(body_json(json!({
+            "member_id": MEMBER, "start": NOW, "end": null, "billable": true,
+            "project_id": "p1", "task_id": "t1", "description": "Header",
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "data": entry("again", NOW, None),
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    harness.engine.toggle_timer().await.unwrap();
+    let view = harness.sink.last();
+    let timer = view.timer.unwrap();
+    assert_eq!(timer.entry_id, "again");
+    assert_eq!(timer.kind, EntryKind::Work);
+    assert_eq!(view.week.unwrap().days[4].break_seconds, 3600);
+}
+
+#[tokio::test]
+async fn breaks_are_offered_only_where_the_organization_tracks_them() {
+    let server = MockServer::start().await;
+    let harness = signed_in_with_timer(&server, false, None, vec![]).await;
+    assert!(!harness.sink.last().breaks_enabled);
+    assert!(
+        harness
+            .engine
+            .catalog_view()
+            .options
+            .iter()
+            .all(|option| option.kind == EntryKind::Work)
+    );
+    let error = harness.engine.start_break().await.unwrap_err();
+    assert_eq!(error.message, "This organization doesn't track breaks");
+
+    let server = MockServer::start().await;
+    let harness = signed_in_with_timer(&server, true, None, vec![]).await;
+    let options = harness.engine.catalog_view().options;
+    let last = options.last().unwrap();
+    assert_eq!(
+        (last.kind, last.label.as_str()),
+        (EntryKind::Break, "Break")
+    );
+}
+
+#[tokio::test]
+async fn a_group_saves_its_shared_fields_to_every_entry_and_keeps_their_times() {
+    let server = MockServer::start().await;
+    let harness = signed_in_with_week(
+        &server,
+        vec![
+            entry("a", "2026-10-09T07:00:00Z", Some("2026-10-09T09:00:00Z")),
+            entry("b", "2026-10-09T09:05:00Z", Some("2026-10-09T09:35:00Z")),
+        ],
+    )
+    .await;
+    for (id, start, end) in [
+        ("a", "2026-10-09T07:00:00Z", "2026-10-09T09:00:00Z"),
+        ("b", "2026-10-09T09:05:00Z", "2026-10-09T09:35:00Z"),
+    ] {
+        let mut saved = entry(id, start, Some(end));
+        saved["description"] = json!("Review");
+        Mock::given(method("PUT"))
+            .and(path(format!(
+                "/api/v1/organizations/{ORG}/time-entries/{id}"
+            )))
+            .and(body_json(json!({
+                "start": start, "end": end, "billable": true,
+                "project_id": "p1", "task_id": null, "description": "Review",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": saved })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let form = harness
+        .engine
+        .prepare_form(&FormArgs {
+            date: "2026-10-09".to_owned(),
+            entry_id: None,
+            group_ids: vec!["a".to_owned(), "b".to_owned()],
+        })
+        .unwrap();
+    assert_eq!(form.group_ids, ["a", "b"]);
+    assert_eq!(form.duration, "2:30");
+    harness
+        .engine
+        .save_entry(EntryDraft {
+            group_ids: form.group_ids,
+            project_id: Some("p1".to_owned()),
+            task_id: None,
+            description: "Review".to_owned(),
+            // Ignored for a group: its entries keep their times.
+            duration: "8".to_owned(),
+            ..draft("09:00", "")
+        })
+        .await
+        .unwrap();
+    let friday = &harness.sink.last().week.unwrap().days[4];
+    assert!(
+        friday
+            .entries
+            .iter()
+            .all(|entry| entry.description == "Review")
+    );
+    assert_eq!(friday.total_seconds, 2 * 3600 + 30 * 60);
+    assert_eq!(
+        harness.sink.notices().last().unwrap().text,
+        "Saved 2 time entries"
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_group_deletes_each_entry_and_restores_what_failed() {
+    let server = MockServer::start().await;
+    let harness = signed_in_with_week(
+        &server,
+        vec![
+            entry("a", "2026-10-09T07:00:00Z", Some("2026-10-09T08:00:00Z")),
+            entry("b", "2026-10-09T08:00:00Z", Some("2026-10-09T09:00:00Z")),
+            entry("c", "2026-10-09T09:00:00Z", Some("2026-10-09T09:30:00Z")),
+        ],
+    )
+    .await;
+    for (id, status) in [("a", 204), ("b", 204), ("c", 403)] {
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/api/v1/organizations/{ORG}/time-entries/{id}"
+            )))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    harness
+        .engine
+        .delete_entries(&["a".to_owned(), "b".to_owned()])
+        .await
+        .unwrap();
+    let ids = |harness: &Harness| -> Vec<String> {
+        harness.sink.last().week.unwrap().days[4]
+            .entries
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect()
+    };
+    assert_eq!(ids(&harness), ["c"]);
+    assert_eq!(
+        harness.sink.notices().last().unwrap().text,
+        "Deleted 2 time entries"
+    );
+
+    let error = harness
+        .engine
+        .delete_entries(&["c".to_owned()])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.message,
+        "You don't have permission to do that in this organization"
+    );
+    assert_eq!(ids(&harness), ["c"]);
 }
 
 #[tokio::test]

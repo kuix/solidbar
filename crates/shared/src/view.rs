@@ -26,6 +26,9 @@ pub struct AppView {
     /// The person's solidtime time zone differs from the Mac's.
     pub time_zone_hint: Option<String>,
     pub tray: TrayView,
+    /// The active organization lets its members track breaks.
+    #[serde(default)]
+    pub breaks_enabled: bool,
 }
 
 /// What the menu bar shows next to the icon.
@@ -78,13 +81,34 @@ pub struct DayView {
     /// `Monday, Oct 5`
     pub label: String,
     pub is_today: bool,
+    /// Working time; breaks don't count.
     pub total_seconds: i64,
+    #[serde(default)]
+    pub break_seconds: i64,
+    /// Ordered by start.
     pub entries: Vec<EntryView>,
+}
+
+/// Work time or a break (solidtime's time entry `type`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryKind {
+    #[default]
+    Work,
+    Break,
+}
+
+impl EntryKind {
+    pub fn is_work(&self) -> bool {
+        *self == Self::Work
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EntryView {
     pub id: String,
+    #[serde(default)]
+    pub kind: EntryKind,
     pub project_id: Option<String>,
     pub task_id: Option<String>,
     pub project_name: Option<String>,
@@ -113,11 +137,19 @@ pub struct TimerView {
     pub description: String,
     pub project_name: Option<String>,
     pub in_active_org: bool,
+    #[serde(default)]
+    pub kind: EntryKind,
+    /// During a break: what "Resume" continues, e.g. the description of the work before it.
+    #[serde(default)]
+    pub resume_label: Option<String>,
 }
 
 /// One choice in the project/task picker.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkOption {
+    /// `Break` for the "Break" choice, offered when the organization tracks breaks.
+    #[serde(default)]
+    pub kind: EntryKind,
     pub project_id: Option<String>,
     pub task_id: Option<String>,
     /// `Project › Task`, or `Project`, or `No project`.
@@ -139,6 +171,10 @@ pub struct Catalog {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormInit {
     pub entry_id: Option<String>,
+    /// Editing a group of entries at once: their ids. The form then changes what they share
+    /// (project, task, notes, billable) and leaves their times alone.
+    #[serde(default)]
+    pub group_ids: Vec<String>,
     pub date: String,
     /// `HH:MM` (24-hour, for `<input type="time">`).
     pub start_time: String,
@@ -149,6 +185,8 @@ pub struct FormInit {
     pub description: String,
     pub billable: bool,
     pub running: bool,
+    #[serde(default)]
+    pub kind: EntryKind,
 }
 
 /// A short message for the person, also announced to VoiceOver.

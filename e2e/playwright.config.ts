@@ -19,8 +19,10 @@ export default defineConfig({
     { name: "release", testMatch: /release\.spec\.ts/, use: { baseURL: "http://127.0.0.1:1422" } },
   ],
   webServer: [
+    // Built first and then served as is: `trunk serve` replaces the whole build directory while
+    // it starts, and pages loaded at that moment never boot.
     {
-      command: "trunk serve --port 1421 --no-autoreload",
+      command: "trunk build --dist ../../e2e/.ui-dist && node ../../e2e/csp-server.mjs ../../e2e/.ui-dist 1421",
       cwd: "../crates/ui",
       url: "http://127.0.0.1:1421",
       reuseExistingServer: true,

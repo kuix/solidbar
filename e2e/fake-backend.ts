@@ -32,7 +32,12 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
       `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}`;
     const changed = () => {
       for (const day of days()) {
-        day.total_seconds = day.entries.reduce((sum: number, entry: any) => sum + entry.duration_seconds, 0);
+        const sum = (kind: string) =>
+          day.entries
+            .filter((entry: any) => (entry.kind ?? "work") === kind)
+            .reduce((total: number, entry: any) => total + entry.duration_seconds, 0);
+        day.total_seconds = sum("work");
+        day.break_seconds = sum("break");
       }
       if (state.app.week) {
         state.app.week.total_seconds = days().reduce((sum: number, day: any) => sum + day.total_seconds, 0);
@@ -46,18 +51,24 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
         state.app.selected_date = date;
         changed();
       },
-      prepare_form: ({ date, entry_id }) => {
-        const existing = entry_id ? findEntry(entry_id) : null;
+      prepare_form: ({ date, entry_id, group_ids = [] }) => {
+        const group = group_ids.map(findEntry);
+        const existing = entry_id ? findEntry(entry_id) : (group[0] ?? null);
+        const seconds = group.length
+          ? group.reduce((sum: number, entry: any) => sum + entry.duration_seconds, 0)
+          : existing?.duration_seconds;
         return {
           entry_id: entry_id ?? null,
+          group_ids,
           date,
           start_time: existing ? "09:00" : "11:00",
-          duration: existing ? hm(existing.duration_seconds) : "",
+          duration: existing ? hm(seconds) : "",
           project_id: existing?.project_id ?? null,
           task_id: existing?.task_id ?? null,
           description: existing?.description ?? "",
           billable: existing?.billable ?? false,
           running: existing?.running ?? false,
+          kind: existing?.kind ?? "work",
         };
       },
       save_entry: (draft) => {
@@ -73,6 +84,7 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
             .find((day: any) => day.date === draft.date)
             .entries.push({
               id: `new-${calls.length}`,
+              kind: draft.kind ?? "work",
               project_id: draft.project_id,
               task_id: draft.task_id,
               project_name: option?.project_id ? project : null,
@@ -97,8 +109,8 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
         changed();
         return null;
       },
-      delete_entry: ({ id }) => {
-        for (const day of days()) day.entries = day.entries.filter((entry: any) => entry.id !== id);
+      delete_entries: ({ ids }) => {
+        for (const day of days()) day.entries = day.entries.filter((entry: any) => !ids.includes(entry.id));
         changed();
         return null;
       },

@@ -118,20 +118,21 @@ fn apply_focus(store: Store, target: Option<Focus>) {
     }
 }
 
-/// Focuses the selected entry, else the day's first entry, else the day's tab.
+/// Focuses the selected row, else the day's first row, else the day's tab.
 fn focus_selected_entry(store: Store) -> bool {
     let Some(day) = store.selected_day() else {
         return false;
     };
-    let entry = store
-        .selected_entry
+    let rows = store.rows();
+    let row = store
+        .selected_row
         .get_untracked()
-        .filter(|id| day.entries.iter().any(|entry| &entry.id == id))
-        .or_else(|| day.entries.first().map(|entry| entry.id.clone()));
-    match entry {
+        .filter(|id| rows.iter().any(|row| &row.dom_id() == id))
+        .or_else(|| rows.first().map(|row| row.dom_id()));
+    match row {
         Some(id) => {
-            store.selected_entry.set(Some(id.clone()));
-            focus_element(&format!("entry-{id}"))
+            store.selected_row.set(Some(id.clone()));
+            focus_element(&id)
         }
         None => focus_element(&format!("tab-{}", day.date)),
     }

@@ -5,8 +5,8 @@ use jiff::civil::Date;
 use jiff::tz::TimeZone;
 use solidbar_shared::duration::format_hm;
 use solidbar_shared::view::{
-    AppView, AuthView, Catalog, DayView, EntryView, OrgView, TimerView, TrayView, WeekView,
-    WorkOption,
+    AppView, AuthView, Catalog, DayView, EntryKind, EntryView, OrgView, TimerView, TrayView,
+    WeekView, WorkOption,
 };
 
 use super::state::{AuthPhase, CatalogData, State};
@@ -52,11 +52,12 @@ pub(crate) fn app_view(state: &State, clocks: &Clocks) -> AppView {
         today: today.to_string(),
         selected_date: state.selected_date.to_string(),
         week,
-        timer: signed_in.then(|| timer_view(state)).flatten(),
+        timer: signed_in.then(|| timer_view(state, clocks.now)).flatten(),
         online: state.online,
         loading: state.loading,
         time_zone_hint: time_zone_hint(state, &calendar, clocks.system_zone),
         tray: tray_view(state, &calendar, today, clocks),
+        breaks_enabled: state.breaks_enabled(),
     }
 }
 
@@ -114,12 +115,20 @@ fn week_view(
                 .filter(|entry| bounds.contains(entry.start))
                 .map(|entry| entry_view(entry, catalog, calendar, state, clocks))
                 .collect();
+            let total = |kind: EntryKind| {
+                entries
+                    .iter()
+                    .filter(|entry| entry.kind == kind)
+                    .map(|entry| entry.duration_seconds)
+                    .sum()
+            };
             DayView {
                 date: date.to_string(),
                 weekday_short: date.strftime("%a").to_string(),
                 label: date.strftime("%A, %b %-d").to_string(),
                 is_today: date == today,
-                total_seconds: entries.iter().map(|entry| entry.duration_seconds).sum(),
+                total_seconds: total(EntryKind::Work),
+                break_seconds: total(EntryKind::Break),
                 entries,
             }
         })
@@ -150,6 +159,7 @@ fn entry_view(
         .and_then(|(catalog, id)| catalog.client(id));
     EntryView {
         id: entry.id.clone(),
+        kind: entry.kind,
         project_id: entry.project_id.clone(),
         task_id: entry.task_id.clone(),
         project_name: project.map(|project| project.name.clone()),
@@ -168,7 +178,7 @@ fn entry_view(
     }
 }
 
-fn timer_view(state: &State) -> Option<TimerView> {
+fn timer_view(state: &State, now: Timestamp) -> Option<TimerView> {
     let timer = state.data.active_timer.as_ref()?;
     let membership = state.membership_of_org(&timer.organization_id);
     let project_name = state
@@ -178,6 +188,12 @@ fn timer_view(state: &State) -> Option<TimerView> {
         .zip(timer.entry.project_id.as_deref())
         .and_then(|(catalog, id)| catalog.project(id))
         .map(|project| project.name.clone());
+    let resume_label = timer
+        .entry
+        .is_break()
+        .then(|| state.last_work_entry(now))
+        .flatten()
+        .map(|work| work_label(work, state.catalog()));
     Some(TimerView {
         entry_id: timer.entry.id.clone(),
         membership_id: membership.map(|membership| membership.id.clone()),
@@ -187,7 +203,27 @@ fn timer_view(state: &State) -> Option<TimerView> {
         project_name,
         in_active_org: membership.map(|membership| &membership.id)
             == state.active_membership().map(|active| &active.id),
+        kind: timer.entry.kind,
+        resume_label,
     })
+}
+
+/// What an entry is about in a few words: its notes, else its project and task.
+fn work_label(entry: &TimeEntry, catalog: Option<&CatalogData>) -> String {
+    if !entry.description.is_empty() {
+        return entry.description.clone();
+    }
+    let project = catalog
+        .zip(entry.project_id.as_deref())
+        .and_then(|(catalog, id)| catalog.project(id));
+    let task = catalog
+        .zip(entry.task_id.as_deref())
+        .and_then(|(catalog, id)| catalog.task(id));
+    match (project, task) {
+        (Some(project), Some(task)) => format!("{} › {}", project.name, task.name),
+        (Some(project), None) => project.name.clone(),
+        (None, _) => "No project".to_owned(),
+    }
 }
 
 fn tray_view(state: &State, calendar: &Calendar, today: Date, clocks: &Clocks) -> TrayView {
@@ -199,7 +235,15 @@ fn tray_view(state: &State, calendar: &Calendar, today: Date, clocks: &Clocks) -
         };
     }
     let (timer_running, time, tooltip) =
-        match timer_view(state).zip(state.data.active_timer.as_ref()) {
+        match timer_view(state, clocks.now).zip(state.data.active_timer.as_ref()) {
+            Some((_, active)) if active.entry.is_break() => {
+                let elapsed = format_hm(active.entry.duration_seconds(clocks.now));
+                (
+                    true,
+                    format!("☕ {elapsed}"),
+                    format!("On a break, {elapsed}"),
+                )
+            }
             Some((timer, active)) => {
                 let elapsed = format_hm(active.entry.duration_seconds(clocks.now));
                 let what = timer
@@ -216,7 +260,9 @@ fn tray_view(state: &State, calendar: &Calendar, today: Date, clocks: &Clocks) -
                 let total = entries_of_week(state, calendar, calendar.week_of(today))
                     .unwrap_or_default()
                     .iter()
-                    .filter(|entry| calendar.day_bounds(today).contains(entry.start))
+                    .filter(|entry| {
+                        !entry.is_break() && calendar.day_bounds(today).contains(entry.start)
+                    })
                     .map(|entry| entry.duration_seconds(clocks.now))
                     .sum();
                 let total = format_hm(total);
@@ -268,6 +314,13 @@ pub(crate) fn catalog_view(state: &State) -> solidbar_shared::view::Catalog {
         );
     }
     options.push(no_project_option());
+    if catalog.breaks_enabled {
+        options.push(WorkOption {
+            kind: EntryKind::Break,
+            label: "Break".to_owned(),
+            ..no_project_option()
+        });
+    }
 
     let recents = state
         .active_membership()
@@ -308,6 +361,7 @@ fn work_option(
         None => project.name.clone(),
     };
     Some(WorkOption {
+        kind: EntryKind::Work,
         project_id: Some(project.id.clone()),
         task_id: task.map(|task| task.id.clone()),
         label,
@@ -323,6 +377,7 @@ fn work_option(
 
 fn no_project_option() -> WorkOption {
     WorkOption {
+        kind: EntryKind::Work,
         project_id: None,
         task_id: None,
         label: "No project".to_owned(),
@@ -442,6 +497,7 @@ mod tests {
                     name: "Kuix".to_owned(),
                     is_archived: false,
                 }],
+                breaks_enabled: false,
                 fetched_at: ts("2026-10-09T07:00:00Z"),
             },
         );

@@ -60,3 +60,14 @@ pub fn plus() -> impl IntoView {
 pub fn minus() -> impl IntoView {
     icon("M3 8h10")
 }
+
+pub fn chevron_down() -> impl IntoView {
+    icon("m3 6 5 5 5-5")
+}
+
+/// A cup, for breaks.
+pub fn cup() -> impl IntoView {
+    icon(
+        "M3 6h8v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm8 1h1a1.5 1.5 0 0 1 0 3h-1M5.5 2.5v1.5M8.5 2.5v1.5",
+    )
+}

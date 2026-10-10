@@ -74,6 +74,8 @@ test("⌘N, a recent pair, ⌥2 and Enter add two hours", async ({ page }) => {
 test("typing on the project picker searches; Enter picks, then saves", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Meta+KeyN");
+  // Typed before the form is there, "e" would edit the selected entry.
+  await expect(page.getByRole("button", { name: "Project and task" })).toBeFocused();
   await page.keyboard.type("head");
   const search = page.getByRole("combobox", { name: "Search projects and tasks" });
   await expect(search).toBeFocused();
@@ -145,6 +147,7 @@ test("projects created elsewhere show up while the form is open", async ({ page 
       recents: [],
     });
   });
+  await expect(page.getByRole("button", { name: "Project and task" })).toBeFocused();
   await page.keyboard.type("rand");
   const options = page.getByRole("listbox", { name: "Projects and tasks" }).getByRole("option");
   await expect(options).toHaveCount(1);
@@ -213,7 +216,7 @@ test("Backspace asks before deleting and Enter confirms", async ({ page }) => {
   await expectAccessible(page);
   await page.keyboard.press("Enter");
   await expect(page.locator(".entry-main")).toHaveCount(1);
-  expect(await invoked(page, "delete_entry")).toEqual([{ id: "e1" }]);
+  expect(await invoked(page, "delete_entries")).toEqual([{ ids: ["e1"] }]);
 });
 
 test("Escape hides the panel", async ({ page }) => {

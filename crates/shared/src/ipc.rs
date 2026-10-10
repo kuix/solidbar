@@ -12,7 +12,7 @@ use crate::instance::InstanceSettings;
 use crate::settings::SettingsPatch;
 use crate::shortcuts::GlobalAction;
 use crate::update::UpdateView;
-use crate::view::{AppView, Catalog, FormInit, Notice};
+use crate::view::{AppView, Catalog, EntryKind, FormInit, Notice};
 
 pub trait Command {
     const NAME: &'static str;
@@ -96,6 +96,9 @@ pub struct RefreshArgs {
 pub struct FormArgs {
     pub date: String,
     pub entry_id: Option<String>,
+    /// Edit these entries together (a row of continued entries).
+    #[serde(default)]
+    pub group_ids: Vec<String>,
 }
 
 /// The entry form as submitted.
@@ -103,6 +106,11 @@ pub struct FormArgs {
 pub struct EntryDraft {
     /// `None` creates a new entry.
     pub id: Option<String>,
+    /// Saves project, task, notes, billable and kind to all of these, keeping their times.
+    #[serde(default)]
+    pub group_ids: Vec<String>,
+    #[serde(default)]
+    pub kind: EntryKind,
     pub date: String,
     pub project_id: Option<String>,
     pub task_id: Option<String>,
@@ -117,8 +125,8 @@ pub struct EntryDraft {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EntryArgs {
-    pub id: String,
+pub struct EntriesArgs {
+    pub ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +143,8 @@ pub enum TimerSource {
     Entry { id: String },
     /// The most recently used project/task pair (⌥⌘S).
     LastUsed,
+    /// Back to work after a break: continues the work entry before it.
+    Resume,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,10 +182,12 @@ commands! {
     Refresh = "refresh", RefreshArgs => ();
     PrepareForm = "prepare_form", FormArgs => FormInit;
     SaveEntry = "save_entry", EntryDraft => ();
-    DeleteEntry = "delete_entry", EntryArgs => ();
+    DeleteEntries = "delete_entries", EntriesArgs => ();
     AdjustEntry = "adjust_entry", AdjustArgs => ();
     StartTimer = "start_timer", TimerSource => ();
     StopTimer = "stop_timer", () => ();
+    /// Stops the work timer and starts a break at the same moment.
+    StartBreak = "start_break", () => ();
     UpdateSettings = "update_settings", SettingsPatch => ();
     SetShortcut = "set_shortcut", ShortcutArgs => ();
     SuspendShortcuts = "shortcuts_suspend", () => ();

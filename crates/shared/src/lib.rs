@@ -5,6 +5,7 @@
 pub mod clock;
 pub mod duration;
 pub mod fuzzy;
+pub mod group;
 pub mod instance;
 pub mod ipc;
 pub mod settings;

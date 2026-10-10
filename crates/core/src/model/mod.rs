@@ -32,6 +32,7 @@ pub(crate) mod testing {
             task_id: None,
             description: String::new(),
             billable: false,
+            kind: Default::default(),
         }
     }
 

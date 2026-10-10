@@ -8,8 +8,8 @@ use serde::de::DeserializeOwned;
 
 use super::ApiError;
 use super::models::{
-    Client, Data, Me, Membership, NewTimeEntry, Page, Project, Task, TimeEntryChanges,
-    TimeEntryList, TimeEntryResource,
+    Client, Data, Me, Membership, NewTimeEntry, OrganizationSettings, Page, Project, Task,
+    TimeEntryChanges, TimeEntryList, TimeEntryResource,
 };
 use crate::auth::{AuthError, Session};
 use crate::model::TimeEntry;
@@ -118,6 +118,20 @@ impl Api {
         self.respond(Method::DELETE, &path, &[], None::<&()>)
             .await?;
         Ok(())
+    }
+
+    /// The organization's settings. A member who may not read them (custom roles) gets the
+    /// defaults instead of an error.
+    pub async fn organization_settings(
+        &self,
+        organization_id: &str,
+    ) -> Result<OrganizationSettings, ApiError> {
+        let path = format!("api/v1/organizations/{organization_id}");
+        match self.get::<Data<OrganizationSettings>>(&path, &[]).await {
+            Ok(settings) => Ok(settings.data),
+            Err(ApiError::Forbidden | ApiError::NotFound) => Ok(OrganizationSettings::default()),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn projects(&self, organization_id: &str) -> Result<Vec<Project>, ApiError> {

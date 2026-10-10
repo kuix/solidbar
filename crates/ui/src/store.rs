@@ -1,18 +1,21 @@
 //! The UI's shared state and the actions components trigger.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use jiff::civil::Date;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use solidbar_shared::group::{EntryGroup, group_entries};
 use solidbar_shared::ipc::{
-    CheckForUpdate, Command, DateArgs, EntryArgs, FormArgs, PrepareForm, SelectDate, ShowReason,
-    StartTimer, StopTimer, TimerSource,
+    AdjustArgs, AdjustEntry, CheckForUpdate, Command, DateArgs, DeleteEntries, EntriesArgs,
+    FormArgs, PrepareForm, SelectDate, ShowReason, StartBreak, StartTimer, StopTimer, TimerSource,
 };
 use solidbar_shared::update::{UpdateState, UpdateView};
-use solidbar_shared::view::{AppView, Catalog, DayView, EntryView, FormInit, Notice, NoticeKind};
+use solidbar_shared::view::{AppView, Catalog, DayView, EntryKind, FormInit, Notice, NoticeKind};
 
 use crate::ipc::call;
+use crate::rows::{Row, group_dom_id, visible_rows};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -26,7 +29,7 @@ pub enum Screen {
 pub enum Focus {
     /// The tab of this day in the week strip, once that day is selected.
     Day(String),
-    /// The selected (or first) entry, once `date` is selected; falls back to the day's tab.
+    /// The selected (or first) row, once `date` is selected; falls back to the day's tab.
     Entry { date: Option<String> },
     /// An element by id.
     Element(String),
@@ -39,16 +42,25 @@ pub enum Toward {
     Entries,
 }
 
+/// A row waiting for "Delete? ⏎ / ⎋".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingDelete {
+    /// The row's element id, where the question shows.
+    pub row: String,
+    pub ids: Vec<String>,
+}
+
 #[derive(Clone, Copy)]
 pub struct Store {
     pub app: RwSignal<Option<AppView>>,
     pub catalog: RwSignal<Catalog>,
     pub screen: RwSignal<Screen>,
     pub form: RwSignal<Option<FormInit>>,
-    /// The entry row that holds the roving focus.
-    pub selected_entry: RwSignal<Option<String>>,
-    /// The entry waiting for "Delete? ⏎ / ⎋".
-    pub confirm_delete: RwSignal<Option<String>>,
+    /// The element id of the row that holds the roving focus (see [`Row::dom_id`]).
+    pub selected_row: RwSignal<Option<String>>,
+    /// Groups (by id) opened to show their entries.
+    pub expanded: RwSignal<HashSet<String>>,
+    pub confirm_delete: RwSignal<Option<PendingDelete>>,
     pub pinned: RwSignal<bool>,
     pub focus: RwSignal<Option<Focus>>,
     /// Polite live region text (confirmations).
@@ -66,7 +78,8 @@ impl Store {
             catalog: RwSignal::new(Catalog::default()),
             screen: RwSignal::new(Screen::List),
             form: RwSignal::new(None),
-            selected_entry: RwSignal::new(None),
+            selected_row: RwSignal::new(None),
+            expanded: RwSignal::new(HashSet::new()),
             confirm_delete: RwSignal::new(None),
             pinned: RwSignal::new(false),
             focus: RwSignal::new(None),
@@ -85,6 +98,20 @@ impl Store {
 
     pub fn online(&self) -> bool {
         self.with_app(|app| app.online).unwrap_or(false)
+    }
+
+    pub fn breaks_enabled(&self) -> bool {
+        self.app
+            .with_untracked(|app| app.as_ref().is_some_and(|app| app.breaks_enabled))
+    }
+
+    /// A break runs in the organization on screen.
+    pub fn on_break(&self) -> bool {
+        self.app.with_untracked(|app| {
+            app.as_ref()
+                .and_then(|app| app.timer.as_ref())
+                .is_some_and(|timer| timer.in_active_org && timer.kind == EntryKind::Break)
+        })
     }
 
     /// Runs a command in the background, showing its error if it fails.
@@ -145,15 +172,26 @@ impl Store {
         })
     }
 
-    pub fn entry(&self, id: &str) -> Option<EntryView> {
-        self.selected_day()?
-            .entries
-            .into_iter()
-            .find(|entry| entry.id == id)
+    /// The selected day's entries, grouped as the list shows them.
+    pub fn groups(&self) -> Vec<EntryGroup> {
+        self.selected_day()
+            .map(|day| group_entries(&day.entries))
+            .unwrap_or_default()
+    }
+
+    pub fn rows(&self) -> Vec<Row> {
+        self.expanded
+            .with_untracked(|expanded| visible_rows(&self.groups(), expanded))
+    }
+
+    /// The row holding the roving focus, if it's still on screen.
+    pub fn selected(&self) -> Option<Row> {
+        let id = self.selected_row.get_untracked()?;
+        self.rows().into_iter().find(|row| row.dom_id() == id)
     }
 
     pub fn select_date(self, date: Date, toward: Toward) {
-        self.selected_entry.set(None);
+        self.selected_row.set(None);
         self.confirm_delete.set(None);
         let date_text = date.to_string();
         self.focus.set(Some(match toward {
@@ -186,20 +224,32 @@ impl Store {
 
     pub fn open_new_form(self) {
         if let Some(date) = self.selected_date() {
-            self.open_form(date.to_string(), None);
+            self.open_form(date.to_string(), None, Vec::new());
         }
     }
 
-    pub fn open_edit_form(self, id: String) {
-        if let Some(date) = self.selected_date() {
-            self.selected_entry.set(Some(id.clone()));
-            self.open_form(date.to_string(), Some(id));
-        }
+    /// Opens the row in the form: one entry, or a group's shared fields.
+    pub fn edit(self, row: &Row) {
+        let Some(date) = self.selected_date() else {
+            return;
+        };
+        self.selected_row.set(Some(row.dom_id()));
+        let (entry_id, group_ids) = match row {
+            Row::Group(group) if group.len() > 1 => (None, group.ids()),
+            Row::Group(group) => (Some(group.id().to_owned()), Vec::new()),
+            Row::Interval { entry, .. } => (Some(entry.id.clone()), Vec::new()),
+        };
+        self.open_form(date.to_string(), entry_id, group_ids);
     }
 
-    fn open_form(self, date: String, entry_id: Option<String>) {
+    fn open_form(self, date: String, entry_id: Option<String>, group_ids: Vec<String>) {
         spawn_local(async move {
-            match call::<PrepareForm>(&FormArgs { date, entry_id }).await {
+            let args = FormArgs {
+                date,
+                entry_id,
+                group_ids,
+            };
+            match call::<PrepareForm>(&args).await {
                 Ok(init) => {
                     self.confirm_delete.set(None);
                     self.form.set(Some(init));
@@ -216,36 +266,120 @@ impl Store {
         self.focus.set(Some(Focus::Entry { date: None }));
     }
 
-    /// Starts a timer from the entry, or stops it when it is the running one.
-    pub fn toggle_entry_timer(self, entry: &EntryView) {
-        if entry.running {
+    /// The row's timer button: stops the running one, otherwise continues the row (a new entry
+    /// like it). During a break, continuing work ends the break.
+    pub fn toggle_row_timer(self, row: &Row) {
+        if row.running() {
             self.run::<StopTimer>(());
+        } else if row.is_break() {
+            self.run::<StartBreak>(());
         } else {
             self.run::<StartTimer>(TimerSource::Entry {
-                id: entry.id.clone(),
+                id: row.target().id.clone(),
             });
         }
     }
 
-    pub fn ask_delete(self, id: String) {
-        self.confirm_delete.set(Some(id.clone()));
+    /// S: like the selected row's timer button, except that during a break it goes back to
+    /// work unless a work row is selected. Says whether it did anything.
+    pub fn timer_key(self) -> bool {
+        let row = self.selected().filter(|row| !row.pending());
+        if self.on_break() {
+            match row {
+                Some(row) if !row.is_break() => self.toggle_row_timer(&row),
+                _ => self.resume(),
+            }
+            return true;
+        }
+        match row {
+            Some(row) => {
+                self.toggle_row_timer(&row);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn resume(self) {
+        self.run::<StartTimer>(TimerSource::Resume);
+    }
+
+    /// B: ends the break, or takes one (stopping the work timer).
+    pub fn break_key(self) -> bool {
+        if !self.breaks_enabled() {
+            return false;
+        }
+        if self.on_break() {
+            self.run::<StopTimer>(());
+        } else {
+            self.run::<StartBreak>(());
+        }
+        true
+    }
+
+    pub fn adjust(self, row: &Row, delta_minutes: i64) {
+        self.selected_row.set(Some(row.dom_id()));
+        self.run::<AdjustEntry>(AdjustArgs {
+            id: row.target().id.clone(),
+            delta_minutes,
+        });
+    }
+
+    /// → opens a group with several entries, ← closes it (also from one of its entries). Says
+    /// whether it did, so the arrow can change the day otherwise.
+    pub fn disclose(self, open: bool) -> bool {
+        let Some(row) = self.selected() else {
+            return false;
+        };
+        let group = row.group().clone();
+        let is_open = self
+            .expanded
+            .with_untracked(|expanded| expanded.contains(group.id()));
+        match row {
+            Row::Group(_) if group.len() > 1 && open != is_open => {
+                self.set_expanded(group.id(), open);
+                true
+            }
+            Row::Interval { .. } if !open => {
+                self.set_expanded(group.id(), false);
+                let id = group_dom_id(&group);
+                self.selected_row.set(Some(id.clone()));
+                self.focus.set(Some(Focus::Element(id)));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn set_expanded(self, group_id: &str, open: bool) {
+        self.expanded.update(|expanded| {
+            if open {
+                expanded.insert(group_id.to_owned());
+            } else {
+                expanded.remove(group_id);
+            }
+        });
+    }
+
+    pub fn ask_delete(self, row: String, ids: Vec<String>) {
         self.focus
-            .set(Some(Focus::Element(format!("confirm-delete-{id}"))));
+            .set(Some(Focus::Element(format!("confirm-delete-{row}"))));
+        self.confirm_delete.set(Some(PendingDelete { row, ids }));
     }
 
     pub fn confirm_delete(self) {
-        if let Some(id) = self.confirm_delete.get_untracked() {
+        if let Some(pending) = self.confirm_delete.get_untracked() {
             self.confirm_delete.set(None);
-            self.selected_entry.set(None);
+            self.selected_row.set(None);
             self.focus.set(Some(Focus::Entry { date: None }));
-            self.run::<solidbar_shared::ipc::DeleteEntry>(EntryArgs { id });
+            self.run::<DeleteEntries>(EntriesArgs { ids: pending.ids });
         }
     }
 
     pub fn cancel_delete(self) {
-        if let Some(id) = self.confirm_delete.get_untracked() {
+        if let Some(pending) = self.confirm_delete.get_untracked() {
             self.confirm_delete.set(None);
-            self.focus.set(Some(Focus::Element(format!("entry-{id}"))));
+            self.focus.set(Some(Focus::Element(pending.row)));
         }
     }
 
@@ -261,14 +395,14 @@ impl Store {
         match reason {
             ShowReason::NewEntry => {
                 if let Some(today) = self.today() {
-                    self.open_form(today.to_string(), None);
+                    self.open_form(today.to_string(), None, Vec::new());
                 }
             }
             ShowReason::Toggle => {
                 if self.screen.get_untracked() == Screen::Form {
                     self.close_form();
                 }
-                self.selected_entry.set(None);
+                self.selected_row.set(None);
                 self.focus.set(Some(Focus::Entry { date: None }));
             }
         }

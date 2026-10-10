@@ -1,17 +1,22 @@
 //! The signed-in panel: header, week strip, the selected day and the footer.
 
 use leptos::prelude::*;
+use solidbar_shared::group::{EntryGroup, group_entries};
 use solidbar_shared::ipc::{
-    AdjustArgs, AdjustEntry, AutostartArgs, InstallUpdate, MembershipArgs, PanelSetPinned, PinArgs,
-    SelectOrg, SetAutostart, StopTimer, UpdateSettings,
+    AutostartArgs, InstallUpdate, MembershipArgs, PanelSetPinned, PinArgs, SelectOrg, SetAutostart,
+    StartBreak, StopTimer, UpdateSettings,
 };
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateState;
-use solidbar_shared::view::{DayView, EntryView, WeekView};
+use solidbar_shared::view::{DayView, EntryKind, EntryView, WeekView};
+use web_sys::MouseEvent;
 
 use crate::entry_form::EntryForm;
-use crate::format::{entry_label, format_hm, installing, spoken_duration, work_title};
+use crate::format::{
+    format_hm, group_label, installing, interval_label, spoken_duration, time_range, work_title,
+};
 use crate::icons;
+use crate::rows::Row;
 use crate::settings::Settings;
 use crate::store::{Screen, Store, Toward};
 
@@ -140,6 +145,15 @@ fn Banners() -> impl IntoView {
             .with_app(|app| app.timer.clone().filter(|timer| !timer.in_active_org))
             .flatten()
     });
+    let on_break = Memo::new(move |_| {
+        store
+            .with_app(|app| {
+                app.timer
+                    .clone()
+                    .filter(|timer| timer.in_active_org && timer.kind == EntryKind::Break)
+            })
+            .flatten()
+    });
     let offline = Memo::new(move |_| store.with_app(|app| !app.online).unwrap_or(false));
     let hint = Memo::new(move |_| store.with_app(|app| app.time_zone_hint.clone()).flatten());
     let offer_autostart = Memo::new(move |_| {
@@ -175,11 +189,42 @@ fn Banners() -> impl IntoView {
                         }
                     };
                     let stop = move |_| store.run::<StopTimer>(());
+                    let (what, stop_label) = match timer.kind {
+                        EntryKind::Work => ("Timer running in ", "Stop"),
+                        EntryKind::Break => ("On a break in ", "End break"),
+                    };
                     view! {
                         <div class="banner timer-banner" role="region" aria-label="Running timer">
-                            <span>"Timer running in " <strong>{org}</strong></span>
-                            <button type="button" on:click=stop>"Stop"</button>
+                            <span>{what} <strong>{org}</strong></span>
+                            <button type="button" on:click=stop>{stop_label}</button>
                             <button type="button" on:click=switch>"Switch"</button>
+                        </div>
+                    }
+                })
+        }}
+        {move || {
+            on_break
+                .get()
+                .map(|timer| {
+                    view! {
+                        <div class="banner break-banner" role="region" aria-label="Break">
+                            <span class="kind-icon">{icons::cup()}</span>
+                            <span>"On a break"</span>
+                            {timer
+                                .resume_label
+                                .map(|label| {
+                                    view! {
+                                        <button
+                                            type="button"
+                                            aria-keyshortcuts="S"
+                                            title="Back to work (S)"
+                                            on:click=move |_| store.resume()
+                                        >
+                                            {icons::play()}
+                                            {format!("Resume “{label}”")}
+                                        </button>
+                                    }
+                                })}
                         </div>
                     }
                 })
@@ -288,18 +333,44 @@ fn DayTab(day: DayView, selected_date: Memo<String>, store: Store) -> impl IntoV
 fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
     let store = expect_context::<Store>();
     let loading = Memo::new(move |_| store.with_app(|app| app.loading).unwrap_or(false));
-    let entries = Memo::new(move |_| day.get().map(|day| day.entries).unwrap_or_default());
+    let groups = Memo::new(move |_| {
+        day.with(|day| {
+            day.as_ref()
+                .map(|day| group_entries(&day.entries))
+                .unwrap_or_default()
+        })
+    });
     view! {
         {move || match day.get() {
             None => view! { <p class="empty" role="status">"Loading…"</p> }.into_any(),
             Some(day) => {
                 let empty = day.entries.is_empty();
                 let label = day.label.clone();
+                let total_label = match day.break_seconds {
+                    0 => spoken_duration(day.total_seconds),
+                    breaks => {
+                        format!(
+                            "{} worked, {} of breaks",
+                            spoken_duration(day.total_seconds),
+                            spoken_duration(breaks),
+                        )
+                    }
+                };
                 view! {
                     <div class="day-heading">
                         <h2 id="day-heading">{day.label.clone()}</h2>
-                        <span class="day-heading-total" aria-label=spoken_duration(day.total_seconds)>
-                            {format_hm(day.total_seconds)}
+                        <span class="day-heading-total">
+                            <span class="sr-only">{total_label}</span>
+                            {(day.break_seconds > 0)
+                                .then(|| {
+                                    view! {
+                                        <span class="break-total" aria-hidden="true">
+                                            {icons::cup()}
+                                            {format_hm(day.break_seconds)}
+                                        </span>
+                                    }
+                                })}
+                            <span aria-hidden="true">{format_hm(day.total_seconds)}</span>
                         </span>
                     </div>
                     <Show
@@ -317,8 +388,8 @@ fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
                         }
                     >
                         <ul class="entries" aria-labelledby="day-heading" aria-busy=move || loading.get().to_string()>
-                            <For each=move || entries.get() key=|entry| entry.clone() let:entry>
-                                <EntryRow entry />
+                            <For each=move || groups.get() key=|group| group.clone() let:group>
+                                <GroupRow group />
                             </For>
                         </ul>
                     </Show>
@@ -329,72 +400,61 @@ fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
     }
 }
 
+/// A row of the day: one entry, or several continued ones (→ shows them one by one).
 #[component]
-fn EntryRow(entry: EntryView) -> impl IntoView {
+fn GroupRow(group: EntryGroup) -> impl IntoView {
     let store = expect_context::<Store>();
-    let id = entry.id.clone();
-    let is_selected = {
-        let id = id.clone();
-        Memo::new(move |_| store.selected_entry.get().as_ref() == Some(&id))
+    let row = Row::Group(group.clone());
+    let dom_id = row.dom_id();
+    let group_id = group.id().to_owned();
+    let several = group.len() > 1;
+    let expanded = {
+        let group_id = group_id.clone();
+        Memo::new(move |_| several && store.expanded.with(|expanded| expanded.contains(&group_id)))
     };
-    let confirming = {
-        let id = id.clone();
-        Memo::new(move |_| store.confirm_delete.get().as_ref() == Some(&id))
-    };
-    let editable = {
-        let pending = entry.pending;
-        Memo::new(move |_| store.with_app(|app| app.online).unwrap_or(false) && !pending)
-    };
-    let adjust = {
-        let id = id.clone();
-        move |delta_minutes: i64| {
-            store.selected_entry.set(Some(id.clone()));
-            store.run::<AdjustEntry>(AdjustArgs {
-                id: id.clone(),
-                delta_minutes,
-            })
+    let toggle_open = {
+        let (group_id, dom_id) = (group_id.clone(), dom_id.clone());
+        move |event: MouseEvent| {
+            // Opens the group rather than the form.
+            event.stop_propagation();
+            event.prevent_default();
+            store.selected_row.set(Some(dom_id.clone()));
+            store.set_expanded(&group_id, !expanded.get_untracked());
         }
     };
-    let adjust_down = adjust.clone();
-    let toggle = {
-        let entry = entry.clone();
-        move |_| store.toggle_entry_timer(&entry)
-    };
-    let edit = {
-        let id = id.clone();
-        move |_| store.open_edit_form(id.clone())
-    };
-    let focus = {
-        let id = id.clone();
-        move |_| store.selected_entry.set(Some(id.clone()))
-    };
-    let delete = {
-        let id = id.clone();
-        move |_| store.ask_delete(id.clone())
-    };
+    let entry = group.first().clone();
+    let is_break = group.is_break();
     let color = entry
         .color
         .clone()
         .unwrap_or_else(|| "var(--no-project)".to_owned());
-    let times = format!(
-        "{}–{}",
-        entry.start_label,
-        entry.end_label.clone().unwrap_or_else(|| "now".to_owned())
-    );
+    let notes = if entry.description.is_empty() {
+        time_range(group.start_label(), group.end_label())
+    } else {
+        entry.description.clone()
+    };
+    let intervals_id = format!("intervals-{group_id}");
+    let count = group.len();
+    let total = format_hm(group.duration_seconds());
+    let label = group_label(&group);
+    let intervals = move || {
+        group
+            .entries
+            .iter()
+            .map(|entry| view! { <IntervalRow group=group.clone() entry=entry.clone() /> })
+            .collect_view()
+    };
+    let disclosure = (several, Some(expanded), intervals_id.clone());
 
     view! {
-        <li class="entry" class:running=entry.running class:pending=entry.pending>
-            <button
-                type="button"
-                class="entry-main"
-                id=format!("entry-{id}")
-                tabindex=move || if is_selected.get() { "0" } else { "-1" }
-                aria-label=entry_label(&entry)
-                aria-keyshortcuts="Enter S Meta+Equal Meta+Minus Backspace"
-                on:focus=focus
-                on:click=edit
-            >
-                <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+        <li class="entry" class:break=is_break>
+            <RowLine row label disclosure>
+                {if is_break {
+                    view! { <span class="kind-icon">{icons::cup()}</span> }.into_any()
+                } else {
+                    view! { <span class="dot" style=format!("background:{color}") aria-hidden="true"></span> }
+                        .into_any()
+                }}
                 <span class="titles">
                     <span class="work">
                         {work_title(&entry)}
@@ -403,11 +463,147 @@ fn EntryRow(entry: EntryView) -> impl IntoView {
                             .clone()
                             .map(|client| view! { <span class="client">{format!(" · {client}")}</span> })}
                     </span>
-                    <span class="notes">
-                        {if entry.description.is_empty() { times.clone() } else { entry.description.clone() }}
-                    </span>
+                    <span class="notes">{notes}</span>
                 </span>
-                <span class="duration">{format_hm(entry.duration_seconds)}</span>
+                {several
+                    .then(|| {
+                        view! {
+                            <span class="count" aria-hidden="true" title="Show the entries (→)" on:click=toggle_open>
+                                {move || {
+                                    if expanded.get() {
+                                        icons::chevron_down().into_any()
+                                    } else {
+                                        icons::chevron_right().into_any()
+                                    }
+                                }}
+                                {count}
+                            </span>
+                        }
+                    })}
+                <span class="duration">{total}</span>
+            </RowLine>
+            <Show when=move || expanded.get()>
+                <ul class="intervals" id=intervals_id.clone() aria-label="Entries">
+                    {intervals.clone()}
+                </ul>
+            </Show>
+        </li>
+    }
+}
+
+/// One entry of an opened group.
+#[component]
+fn IntervalRow(group: EntryGroup, entry: EntryView) -> impl IntoView {
+    let label = interval_label(&entry);
+    let times = time_range(&entry.start_label, entry.end_label.as_deref());
+    let duration = format_hm(entry.duration_seconds);
+    let row = Row::Interval { group, entry };
+    view! {
+        <li class="interval">
+            <RowLine row label disclosure=(false, None, String::new())>
+                <span class="titles">
+                    <span class="notes">{times}</span>
+                </span>
+                <span class="duration">{duration}</span>
+            </RowLine>
+        </li>
+    }
+}
+
+/// A focusable row with its −/+ and timer buttons and the delete question. `disclosure` is
+/// whether the row opens (several entries), whether it is open, and what it opens.
+#[component]
+fn RowLine(
+    row: Row,
+    label: String,
+    disclosure: (bool, Option<Memo<bool>>, String),
+    children: Children,
+) -> impl IntoView {
+    let store = expect_context::<Store>();
+    let dom_id = row.dom_id();
+    let (opens, open, controls) = disclosure;
+    let is_selected = {
+        let dom_id = dom_id.clone();
+        Memo::new(move |_| store.selected_row.get().as_ref() == Some(&dom_id))
+    };
+    let confirming = {
+        let dom_id = dom_id.clone();
+        Memo::new(move |_| {
+            store.confirm_delete.with(|pending| {
+                pending
+                    .as_ref()
+                    .is_some_and(|pending| pending.row == dom_id)
+            })
+        })
+    };
+    let pending = row.pending();
+    let editable =
+        Memo::new(move |_| store.with_app(|app| app.online).unwrap_or(false) && !pending);
+    let breaks_enabled =
+        Memo::new(move |_| store.with_app(|app| app.breaks_enabled).unwrap_or(false));
+    let (running, is_break) = (row.running(), row.is_break());
+    let ids = row.ids();
+    let count = ids.len();
+
+    let edit = {
+        let row = row.clone();
+        move |_| store.edit(&row)
+    };
+    let focus = {
+        let dom_id = dom_id.clone();
+        move |_| store.selected_row.set(Some(dom_id.clone()))
+    };
+    let adjust_up = {
+        let row = row.clone();
+        move |_| store.adjust(&row, 60)
+    };
+    let adjust_down = {
+        let row = row.clone();
+        move |_| store.adjust(&row, -60)
+    };
+    let toggle = {
+        let row = row.clone();
+        move |_| store.toggle_row_timer(&row)
+    };
+    let delete = {
+        let (dom_id, ids) = (dom_id.clone(), ids.clone());
+        move |_| store.ask_delete(dom_id.clone(), ids.clone())
+    };
+    let take_break = move |_| store.run::<StartBreak>(());
+    let (timer_label, timer_title) = match (is_break, running) {
+        (false, true) => ("Stop timer", "Stop timer (S)"),
+        (false, false) => ("Continue: start a timer like this entry", "Continue (S)"),
+        (true, true) => ("End break", "End break (B)"),
+        (true, false) => ("Take a break", "Take a break (B)"),
+    };
+    let mut keyshortcuts = "Enter S Meta+Equal Meta+Minus Backspace".to_owned();
+    if opens {
+        keyshortcuts.push_str(" ArrowRight ArrowLeft");
+    }
+    if breaks_enabled.get_untracked() {
+        keyshortcuts.push_str(" B");
+    }
+    let question = match count {
+        1 => "Delete this entry?".to_owned(),
+        count => format!("Delete these {count} entries?"),
+    };
+
+    view! {
+        <div class="entry-row" class:running=running class:pending=pending>
+            <button
+                type="button"
+                class="entry-main"
+                class:with-count=opens
+                id=dom_id.clone()
+                tabindex=move || if is_selected.get() { "0" } else { "-1" }
+                aria-label=label
+                aria-expanded=move || opens.then(|| open.is_some_and(|open| open.get()).to_string())
+                aria-controls=move || open.is_some_and(|open| open.get()).then(|| controls.clone())
+                aria-keyshortcuts=keyshortcuts
+                on:focus=focus
+                on:click=edit
+            >
+                {children()}
             </button>
             <div class="row-actions">
                 <button
@@ -417,7 +613,7 @@ fn EntryRow(entry: EntryView) -> impl IntoView {
                     aria-label="Remove 1 hour"
                     title="Remove 1 hour (⌘−)"
                     prop:disabled=move || !editable.get()
-                    on:click=move |_| adjust_down(-60)
+                    on:click=adjust_down
                 >
                     {icons::minus()}
                 </button>
@@ -428,42 +624,57 @@ fn EntryRow(entry: EntryView) -> impl IntoView {
                     aria-label="Add 1 hour"
                     title="Add 1 hour (⌘=)"
                     prop:disabled=move || !editable.get()
-                    on:click=move |_| adjust(60)
+                    on:click=adjust_up
                 >
                     {icons::plus()}
                 </button>
-                <button
-                    type="button"
-                    tabindex="-1"
-                    class="icon-button timer-button"
-                    aria-label=if entry.running { "Stop timer" } else { "Start a timer like this entry" }
-                    title=if entry.running { "Stop timer (S)" } else { "Start timer (S)" }
-                    prop:disabled=move || !editable.get()
-                    on:click=toggle
-                >
-                    {if entry.running { icons::stop().into_any() } else { icons::play().into_any() }}
-                </button>
-            </div>
-            <Show when=move || confirming.get()>
-                <div class="confirm-delete" role="group" aria-label="Delete this entry?">
-                    <span>"Delete this entry?"</span>
+                <Show when=move || running && !is_break && breaks_enabled.get()>
                     <button
                         type="button"
-                        class="danger"
-                        id=format!("confirm-delete-{id}")
-                        on:click=move |_| store.confirm_delete()
+                        tabindex="-1"
+                        class="icon-button break-button"
+                        aria-label="Take a break"
+                        title="Take a break (B)"
+                        prop:disabled=move || !editable.get()
+                        on:click=take_break
                     >
-                        "Delete ↩"
+                        {icons::cup()}
                     </button>
-                    <button type="button" on:click=move |_| store.cancel_delete()>
-                        "Cancel ⎋"
+                </Show>
+                <Show when=move || !is_break || running || breaks_enabled.get()>
+                    <button
+                        type="button"
+                        tabindex="-1"
+                        class="icon-button timer-button"
+                        aria-label=timer_label
+                        title=timer_title
+                        prop:disabled=move || !editable.get()
+                        on:click=toggle.clone()
+                    >
+                        {if running { icons::stop().into_any() } else { icons::play().into_any() }}
                     </button>
-                </div>
-            </Show>
-            <button type="button" class="sr-only" tabindex="-1" on:click=delete>
-                "Delete entry"
-            </button>
-        </li>
+                </Show>
+            </div>
+        </div>
+        <Show when=move || confirming.get()>
+            <div class="confirm-delete" role="group" aria-label=question.clone()>
+                <span>{question.clone()}</span>
+                <button
+                    type="button"
+                    class="danger"
+                    id=format!("confirm-delete-{dom_id}")
+                    on:click=move |_| store.confirm_delete()
+                >
+                    "Delete ↩"
+                </button>
+                <button type="button" on:click=move |_| store.cancel_delete()>
+                    "Cancel ⎋"
+                </button>
+            </div>
+        </Show>
+        <button type="button" class="sr-only" tabindex="-1" on:click=delete>
+            {if count == 1 { "Delete entry" } else { "Delete entries" }}
+        </button>
     }
 }
 

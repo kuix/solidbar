@@ -15,6 +15,7 @@ const days = [
 export function entry(overrides: Record<string, unknown>) {
   return {
     id: "e1",
+    kind: "work",
     project_id: "p1",
     task_id: "t1",
     project_name: "Design system",
@@ -93,13 +94,15 @@ export function signedIn(): Fixture {
       label,
       is_today: date === "2026-10-09",
       total_seconds: list.reduce((sum, item) => sum + item.duration_seconds, 0),
+      break_seconds: 0,
       entries: list,
     };
   });
   return {
     app: {
       auth: { status: "signed_in", user_name: "Barnabás", instance_url: settings.instance.url },
-      settings,
+      // Copies, so a test that changes them doesn't change them for the next one.
+      settings: structuredClone(settings),
       orgs: [
         { membership_id: "m2", name: "ACME" },
         { membership_id: "m1", name: "Kuix" },
@@ -120,9 +123,104 @@ export function signedIn(): Fixture {
       loading: false,
       time_zone_hint: null,
       tray: { timer_running: false, title: "2:00", tooltip: "Today: 2:00" },
+      breaks_enabled: false,
     },
-    catalog,
+    catalog: structuredClone(catalog),
   };
+}
+
+/** A break, as solidtime sends it: no project, task or billable flag. */
+export function pause(overrides: Record<string, unknown>) {
+  return entry({
+    kind: "break",
+    project_id: null,
+    task_id: null,
+    project_name: null,
+    task_name: null,
+    client_name: null,
+    color: null,
+    description: "",
+    billable: false,
+    ...overrides,
+  });
+}
+
+/** Replaces Friday's entries and recounts the totals as the backend would. */
+export function withFriday(fixture: Fixture, entries: any[]): Fixture {
+  const friday = fixture.app.week.days.find((day: any) => day.date === "2026-10-09");
+  friday.entries = entries;
+  for (const day of fixture.app.week.days) {
+    const sum = (kind: string) =>
+      day.entries
+        .filter((item: any) => item.kind === kind)
+        .reduce((total: number, item: any) => total + item.duration_seconds, 0);
+    day.total_seconds = sum("work");
+    day.break_seconds = sum("break");
+  }
+  fixture.app.week.total_seconds = fixture.app.week.days.reduce(
+    (sum: number, day: any) => sum + day.total_seconds,
+    0,
+  );
+  return fixture;
+}
+
+/** The organization tracks breaks: "Break" is in the picker and B takes one. */
+export function withBreaks(fixture: Fixture): Fixture {
+  fixture.app.breaks_enabled = true;
+  fixture.catalog.options.push({
+    kind: "break",
+    project_id: null,
+    task_id: null,
+    label: "Break",
+    client_name: null,
+    color: null,
+    billable: false,
+  });
+  return fixture;
+}
+
+/** Friday's header work was continued after a call: two entries, one row. */
+export function continued(): Fixture {
+  return withFriday(signedIn(), [
+    entry({ id: "e1" }),
+    entry({
+      id: "e2",
+      project_id: "p3",
+      task_id: null,
+      project_name: "Support",
+      task_name: null,
+      client_name: "ACME",
+      color: "#66bb6a",
+      description: "Ticket #123",
+      start_label: "10:30",
+      end_label: "11:00",
+      duration_seconds: 1800,
+    }),
+    entry({ id: "e3", start_label: "11:00", end_label: "11:20", duration_seconds: 1200 }),
+  ]);
+}
+
+/** On a break after the header work, which "Resume" goes back to. */
+export function onBreak(): Fixture {
+  const fixture = withBreaks(
+    withFriday(signedIn(), [
+      entry({ id: "e1" }),
+      pause({ id: "pause", start_label: "10:30", end_label: null, duration_seconds: 900, running: true }),
+    ]),
+  );
+  fixture.app.timer = {
+    entry_id: "pause",
+    membership_id: "m1",
+    org_name: "Kuix",
+    started_at: "2026-10-09T08:30:00Z",
+    description: "",
+    project_name: null,
+    in_active_org: true,
+    kind: "break",
+    resume_label: "Header components",
+  };
+  fixture.app.tray = { timer_running: true, title: "☕ 0:15", tooltip: "On a break, 0:15" };
+  return fixture;
 }
 
 /** Signed in to two organizations without having picked one. */

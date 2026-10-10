@@ -1,6 +1,7 @@
 use jiff::Timestamp;
 use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
+use solidbar_shared::view::EntryKind;
 
 use crate::time::Calendar;
 
@@ -15,11 +16,18 @@ pub struct TimeEntry {
     pub task_id: Option<String>,
     pub description: String,
     pub billable: bool,
+    /// Work or a break; caches written before breaks existed hold only work.
+    #[serde(default)]
+    pub kind: EntryKind,
 }
 
 impl TimeEntry {
     pub fn is_running(&self) -> bool {
         self.end.is_none()
+    }
+
+    pub fn is_break(&self) -> bool {
+        self.kind == EntryKind::Break
     }
 
     /// Elapsed whole seconds; a running entry counts up to `now`.

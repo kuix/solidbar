@@ -22,7 +22,7 @@ use solidbar_shared::ipc::{
     AdjustArgs, BootstrapView, CommandError, EntryDraft, FormArgs, ShortcutArgs, TimerSource,
 };
 use solidbar_shared::settings::{Settings, SettingsPatch};
-use solidbar_shared::view::{AppView, Catalog, FormInit, Notice, NoticeKind};
+use solidbar_shared::view::{AppView, Catalog, EntryKind, FormInit, Notice, NoticeKind};
 use tokio::sync::oneshot;
 use url::Url;
 
@@ -425,14 +425,18 @@ impl Engine {
             }
             organization_id
         };
-        let (projects, tasks, clients) = tokio::try_join!(
+        let (projects, tasks, clients, settings) = tokio::try_join!(
             api.projects(&organization_id),
             api.tasks(&organization_id),
             api.clients(&organization_id),
+            api.organization_settings(&organization_id),
         )?;
         let mut state = self.state();
         let changed = state.data.catalogs.get(&organization_id).is_none_or(|old| {
-            old.projects != projects || old.tasks != tasks || old.clients != clients
+            old.projects != projects
+                || old.tasks != tasks
+                || old.clients != clients
+                || old.breaks_enabled != settings.breaks_enabled
         });
         state.data.catalogs.insert(
             organization_id,
@@ -440,6 +444,7 @@ impl Engine {
                 projects,
                 tasks,
                 clients,
+                breaks_enabled: settings.breaks_enabled,
                 fetched_at: self.deps.clock.now(),
             },
         );
@@ -455,6 +460,8 @@ impl Engine {
         match self.load_catalog(&api, CATALOG_TTL_FOR_FORM).await {
             Ok(true) => {
                 self.emit_catalog();
+                // Whether breaks are on is part of the app view.
+                self.emit_app();
                 self.persist();
             }
             Ok(false) => {}
@@ -539,6 +546,41 @@ impl Engine {
                 .strftime("%H:%M")
                 .to_string()
         };
+        if !args.group_ids.is_empty() {
+            let entries = args
+                .group_ids
+                .iter()
+                .map(|id| {
+                    find_entry(&state, id)
+                        .map(|(_, entry)| entry)
+                        .ok_or_else(|| user_error(ApiError::NotFound))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let first = entries
+                .iter()
+                .min_by_key(|entry| entry.start)
+                .expect("the group has entries");
+            let now = self.deps.clock.now();
+            return Ok(FormInit {
+                entry_id: None,
+                group_ids: args.group_ids.clone(),
+                date: calendar.date_of(first.start).to_string(),
+                start_time: wall_clock(first.start),
+                // Their total, for the form to mention; a group's times aren't edited.
+                duration: format_hm(
+                    entries
+                        .iter()
+                        .map(|entry| entry.duration_seconds(now))
+                        .sum(),
+                ),
+                project_id: first.project_id.clone(),
+                task_id: first.task_id.clone(),
+                description: first.description.clone(),
+                billable: first.billable,
+                running: entries.iter().any(TimeEntry::is_running),
+                kind: first.kind,
+            });
+        }
         match &args.entry_id {
             Some(id) => {
                 let entry = find_entry(&state, id)
@@ -546,6 +588,7 @@ impl Engine {
                     .ok_or_else(|| user_error(ApiError::NotFound))?;
                 Ok(FormInit {
                     entry_id: Some(entry.id.clone()),
+                    group_ids: Vec::new(),
                     date: calendar.date_of(entry.start).to_string(),
                     start_time: wall_clock(entry.start),
                     duration: if entry.is_running() {
@@ -558,6 +601,7 @@ impl Engine {
                     description: entry.description.clone(),
                     billable: entry.billable,
                     running: entry.is_running(),
+                    kind: entry.kind,
                 })
             }
             None => {
@@ -573,6 +617,7 @@ impl Engine {
                 );
                 Ok(FormInit {
                     entry_id: None,
+                    group_ids: Vec::new(),
                     date: date.to_string(),
                     start_time: wall_clock(start),
                     duration: String::new(),
@@ -581,6 +626,7 @@ impl Engine {
                     description: String::new(),
                     billable: false,
                     running: false,
+                    kind: EntryKind::Work,
                 })
             }
         }
@@ -592,11 +638,23 @@ impl Engine {
         let membership = self.active_membership()?;
         let calendar = self.state().calendar();
         let now = self.deps.clock.now();
-        let date = parse_date(&draft.date)?;
-        let start_time = parse_time(&draft.start_time)?;
+        let draft = without_work_fields_on_breaks(draft);
         if draft.task_id.is_some() && draft.project_id.is_none() {
             return Err(CommandError::new("Choose the project of the task"));
         }
+        if !draft.group_ids.is_empty() {
+            self.save_group(&api, &draft).await?;
+            self.notice(
+                NoticeKind::Info,
+                &format!("Saved {} time entries", draft.group_ids.len()),
+            );
+            self.record_recent(&membership, &draft);
+            self.emit_catalog();
+            self.persist();
+            return Ok(());
+        }
+        let date = parse_date(&draft.date)?;
+        let start_time = parse_time(&draft.start_time)?;
         match &draft.id {
             None if draft.start_timer => {
                 let elapsed = match draft.duration.trim() {
@@ -604,10 +662,10 @@ impl Engine {
                     typed => Some(parse_minutes(typed).map_err(user_error)?),
                 };
                 let start = stacking::timer_start(now, elapsed);
-                self.stop_running(&api).await?;
+                self.stop_running(&api, now).await?;
                 let timer = new_entry(&draft, start, None);
                 self.create(&api, &membership, timer).await?;
-                self.notice(NoticeKind::Info, "Timer started");
+                self.notice(NoticeKind::Info, started_message(draft.kind));
             }
             None => {
                 let minutes = parse_minutes(&draft.duration).map_err(user_error)?;
@@ -646,66 +704,146 @@ impl Engine {
                     id: original.id.clone(),
                     ..new_entry(&draft, start, end)
                 };
-                let changes = TimeEntryChanges {
-                    billable: Some(edited.billable),
-                    project_id: Some(edited.project_id.clone()),
-                    task_id: Some(edited.task_id.clone()),
-                    description: Some(
-                        Some(edited.description.clone()).filter(|text| !text.is_empty()),
-                    ),
-                    ..TimeEntryChanges::times(start, end)
-                };
+                let changes = changes_between(&original, &edited);
                 self.update(&api, &organization_id, original, edited, &changes)
                     .await?;
                 self.notice(NoticeKind::Info, "Time entry saved");
             }
         }
-        if let Some(project_id) = draft.project_id {
-            let mut state = self.state();
-            let pairs = state.data.recents.entry(membership.id).or_default();
-            recents::record(
-                pairs,
-                WorkPair {
-                    project_id,
-                    task_id: draft.task_id,
-                },
-            );
-        }
+        self.record_recent(&membership, &draft);
         self.emit_catalog();
         self.persist();
         Ok(())
     }
 
-    pub async fn delete_entry(&self, id: &str) -> Result<(), CommandError> {
+    /// Saves the form's project, task, notes, billable and kind to every entry of a group,
+    /// keeping their times. If one fails, the ones already saved are put back.
+    async fn save_group(&self, api: &Api, draft: &EntryDraft) -> Result<(), CommandError> {
+        let edits = {
+            let state = self.state();
+            draft
+                .group_ids
+                .iter()
+                .map(|id| {
+                    let (organization_id, original) =
+                        find_entry(&state, id).ok_or_else(|| user_error(ApiError::NotFound))?;
+                    let edited = TimeEntry {
+                        id: original.id.clone(),
+                        ..new_entry(draft, original.start, original.end)
+                    };
+                    Ok((organization_id, original, edited))
+                })
+                .collect::<Result<Vec<_>, CommandError>>()?
+        };
+        {
+            let mut state = self.state();
+            for (organization_id, _, edited) in &edits {
+                place(&mut state, organization_id, edited.clone());
+                state.pending.insert(edited.id.clone());
+            }
+        }
+        self.emit_app();
+        for (index, (organization_id, original, edited)) in edits.iter().enumerate() {
+            let changes = changes_between(original, edited);
+            match api
+                .update_time_entry(organization_id, &edited.id, &changes)
+                .await
+            {
+                Ok(updated) => {
+                    let mut state = self.state();
+                    state.pending.remove(&edited.id);
+                    place(&mut state, organization_id, updated);
+                }
+                Err(error) => {
+                    for (organization_id, original, edited) in edits[..index].iter().rev() {
+                        let undo = changes_between(edited, original);
+                        if let Err(undo_error) = api
+                            .update_time_entry(organization_id, &original.id, &undo)
+                            .await
+                        {
+                            log::warn!(
+                                "could not undo the change to {}: {undo_error}",
+                                original.id
+                            );
+                        }
+                    }
+                    {
+                        let mut state = self.state();
+                        for (organization_id, original, _) in &edits {
+                            state.pending.remove(&original.id);
+                            place(&mut state, organization_id, original.clone());
+                        }
+                    }
+                    return Err(self.fail(error));
+                }
+            }
+        }
+        self.emit_app();
+        Ok(())
+    }
+
+    fn record_recent(&self, membership: &Membership, draft: &EntryDraft) {
+        if let Some(project_id) = draft.project_id.clone() {
+            let mut state = self.state();
+            let pairs = state.data.recents.entry(membership.id.clone()).or_default();
+            recents::record(
+                pairs,
+                WorkPair {
+                    project_id,
+                    task_id: draft.task_id.clone(),
+                },
+            );
+        }
+    }
+
+    /// Deletes entries (one, or a group of continued ones). Stops at the first failure and
+    /// shows the entries not deleted again.
+    pub async fn delete_entries(&self, ids: &[String]) -> Result<(), CommandError> {
         let _writes = self.writes.lock().await;
         let api = self.api()?;
-        let (organization_id, original) = {
+        let found = {
             let mut state = self.state();
-            let found = find_entry(&state, id).ok_or_else(|| user_error(ApiError::NotFound))?;
-            unplace(&mut state, id);
-            if state
-                .data
-                .active_timer
-                .as_ref()
-                .is_some_and(|timer| timer.entry.id == id)
-            {
-                state.data.active_timer = None;
+            let found = ids
+                .iter()
+                .map(|id| find_entry(&state, id).ok_or_else(|| user_error(ApiError::NotFound)))
+                .collect::<Result<Vec<_>, _>>()?;
+            for (_, entry) in &found {
+                unplace(&mut state, &entry.id);
+                if state
+                    .data
+                    .active_timer
+                    .as_ref()
+                    .is_some_and(|timer| timer.entry.id == entry.id)
+                {
+                    state.data.active_timer = None;
+                }
             }
             found
         };
         self.emit_app();
-        match api.delete_time_entry(&organization_id, id).await {
-            Ok(()) | Err(ApiError::NotFound) => {
-                self.emit_app();
-                self.persist();
-                self.notice(NoticeKind::Info, "Time entry deleted");
-                Ok(())
-            }
-            Err(error) => {
-                place(&mut self.state(), &organization_id, original);
-                Err(self.fail(error))
+        for (index, (organization_id, entry)) in found.iter().enumerate() {
+            match api.delete_time_entry(organization_id, &entry.id).await {
+                Ok(()) | Err(ApiError::NotFound) => {}
+                Err(error) => {
+                    {
+                        let mut state = self.state();
+                        for (organization_id, entry) in &found[index..] {
+                            place(&mut state, organization_id, entry.clone());
+                        }
+                    }
+                    self.persist();
+                    return Err(self.fail(error));
+                }
             }
         }
+        self.emit_app();
+        self.persist();
+        let message = match found.len() {
+            1 => "Time entry deleted".to_owned(),
+            count => format!("Deleted {count} time entries"),
+        };
+        self.notice(NoticeKind::Info, &message);
+        Ok(())
     }
 
     /// ±1h (or any delta) on an entry; later entries of the day move along. See
@@ -794,23 +932,22 @@ impl Engine {
 
     // --- The timer --------------------------------------------------------------------------
 
+    /// Starts a timer like an existing entry (continuing it), like the last used project, or
+    /// like the work before the running break. Whatever runs is stopped first.
     pub async fn start_timer(&self, source: &TimerSource) -> Result<(), CommandError> {
         let _writes = self.writes.lock().await;
         let api = self.api()?;
         let membership = self.active_membership()?;
-        let (project_id, task_id, description, billable) = {
+        let now = self.deps.clock.now();
+        let like = {
             let state = self.state();
             match source {
                 TimerSource::Entry { id } => {
                     let (_, entry) =
                         find_entry(&state, id).ok_or_else(|| user_error(ApiError::NotFound))?;
-                    (
-                        entry.project_id,
-                        entry.task_id,
-                        entry.description,
-                        entry.billable,
-                    )
+                    Some(entry)
                 }
+                TimerSource::Resume => state.last_work_entry(now).cloned(),
                 TimerSource::LastUsed => {
                     let last = state
                         .data
@@ -822,56 +959,114 @@ impl Engine {
                         .as_ref()
                         .and_then(|pair| state.catalog()?.project(&pair.project_id))
                         .is_some_and(|project| project.is_billable);
-                    (
-                        last.as_ref().map(|pair| pair.project_id.clone()),
-                        last.and_then(|pair| pair.task_id),
-                        String::new(),
+                    Some(TimeEntry {
+                        id: String::new(),
+                        start: now,
+                        end: None,
+                        project_id: last.as_ref().map(|pair| pair.project_id.clone()),
+                        task_id: last.and_then(|pair| pair.task_id),
+                        description: String::new(),
                         billable,
-                    )
+                        kind: EntryKind::Work,
+                    })
                 }
             }
         };
-        self.stop_running(&api).await?;
+        let Some(like) = like else {
+            // Nothing to go back to after the break: just end it.
+            if self.stop_running(&api, now).await?.is_some() {
+                self.persist();
+                self.notice(NoticeKind::Info, "Break ended");
+            }
+            return Ok(());
+        };
+        self.stop_running(&api, now).await?;
         let timer = TimeEntry {
             id: String::new(),
-            start: self.deps.clock.now(),
+            start: now,
             end: None,
-            project_id,
-            task_id,
-            description,
-            billable,
+            ..like
         };
+        let kind = timer.kind;
         self.create(&api, &membership, timer).await?;
         self.persist();
-        self.notice(NoticeKind::Info, "Timer started");
+        self.notice(NoticeKind::Info, started_message(kind));
+        Ok(())
+    }
+
+    /// Stops the work timer and starts a break at the same instant, so the two touch exactly.
+    pub async fn start_break(&self) -> Result<(), CommandError> {
+        let _writes = self.writes.lock().await;
+        let api = self.api()?;
+        let membership = self.active_membership()?;
+        {
+            let state = self.state();
+            if !state.breaks_enabled() {
+                return Err(CommandError::new("This organization doesn't track breaks"));
+            }
+            if state.on_break() {
+                return Ok(());
+            }
+        }
+        let now = self.deps.clock.now();
+        self.stop_running(&api, now).await?;
+        let pause = TimeEntry {
+            id: String::new(),
+            start: now,
+            end: None,
+            project_id: None,
+            task_id: None,
+            description: String::new(),
+            billable: false,
+            kind: EntryKind::Break,
+        };
+        self.create(&api, &membership, pause).await?;
+        self.persist();
+        self.notice(NoticeKind::Info, started_message(EntryKind::Break));
         Ok(())
     }
 
     pub async fn stop_timer(&self) -> Result<(), CommandError> {
         let _writes = self.writes.lock().await;
         let api = self.api()?;
-        if self.stop_running(&api).await? {
+        if let Some(stopped) = self.stop_running(&api, self.deps.clock.now()).await? {
             self.persist();
-            self.notice(NoticeKind::Info, "Timer stopped");
+            let message = if stopped.is_break() {
+                "Break ended"
+            } else {
+                "Timer stopped"
+            };
+            self.notice(NoticeKind::Info, message);
         }
         Ok(())
     }
 
-    /// ⌥⌘S: stop the running timer, or start one on the most recent project/task.
+    /// ⌥⌘S: back to work after a break, stop the running timer, or start one on the most
+    /// recent project/task.
     pub async fn toggle_timer(&self) -> Result<(), CommandError> {
-        if self.state().data.active_timer.is_some() {
+        let (running, on_break) = {
+            let state = self.state();
+            (state.data.active_timer.is_some(), state.on_break())
+        };
+        if on_break {
+            self.start_timer(&TimerSource::Resume).await
+        } else if running {
             self.stop_timer().await
         } else {
             self.start_timer(&TimerSource::LastUsed).await
         }
     }
 
-    /// Stops the running timer, wherever it runs. Returns whether one was running.
-    async fn stop_running(&self, api: &Api) -> Result<bool, CommandError> {
+    /// Stops the running timer at `at`, wherever it runs. Returns the stopped entry.
+    async fn stop_running(
+        &self,
+        api: &Api,
+        at: Timestamp,
+    ) -> Result<Option<TimeEntry>, CommandError> {
         let Some(timer) = self.state().data.active_timer.clone() else {
-            return Ok(false);
+            return Ok(None);
         };
-        let end = self.deps.clock.now().max(timer.entry.start);
+        let end = at.max(timer.entry.start);
         let stopped = TimeEntry {
             end: Some(end),
             ..timer.entry.clone()
@@ -884,15 +1079,15 @@ impl Engine {
             .await
         {
             Ok(updated) => {
-                place(&mut self.state(), &timer.organization_id, updated);
+                place(&mut self.state(), &timer.organization_id, updated.clone());
                 self.emit_app();
-                Ok(true)
+                Ok(Some(updated))
             }
             Err(ApiError::NotFound) => {
                 // Deleted elsewhere in the meantime.
                 unplace(&mut self.state(), &timer.entry.id);
                 self.emit_app();
-                Ok(false)
+                Ok(None)
             }
             Err(error) => {
                 place(&mut self.state(), &timer.organization_id, timer.entry);
@@ -916,6 +1111,7 @@ impl Engine {
             project_id: entry.project_id.clone(),
             task_id: entry.task_id.clone(),
             description: Some(entry.description.clone()).filter(|text| !text.is_empty()),
+            kind: entry.kind,
             ..NewTimeEntry::new(&membership.id, entry.start, entry.end)
         };
         let local_id = format!("local-{}", self.local_ids.fetch_add(1, Ordering::Relaxed));
@@ -1230,6 +1426,39 @@ fn new_entry(draft: &EntryDraft, start: Timestamp, end: Option<Timestamp>) -> Ti
         task_id: draft.task_id.clone(),
         description: draft.description.trim().to_owned(),
         billable: draft.billable,
+        kind: draft.kind,
+    }
+}
+
+/// solidtime rejects breaks with a project, a task or the billable flag.
+fn without_work_fields_on_breaks(draft: EntryDraft) -> EntryDraft {
+    match draft.kind {
+        EntryKind::Work => draft,
+        EntryKind::Break => EntryDraft {
+            project_id: None,
+            task_id: None,
+            billable: false,
+            ..draft
+        },
+    }
+}
+
+/// The `PUT` that turns `from` into `to`: times always, the rest as solidtime expects it.
+fn changes_between(from: &TimeEntry, to: &TimeEntry) -> TimeEntryChanges {
+    TimeEntryChanges {
+        billable: Some(to.billable),
+        project_id: Some(to.project_id.clone()),
+        task_id: Some(to.task_id.clone()),
+        description: Some(Some(to.description.clone()).filter(|text| !text.is_empty())),
+        kind: (to.kind != from.kind).then_some(to.kind),
+        ..TimeEntryChanges::times(to.start, to.end)
+    }
+}
+
+fn started_message(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::Work => "Timer started",
+        EntryKind::Break => "Break started",
     }
 }
 

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use solidbar_core::engine::Engine;
 use solidbar_shared::instance::InstanceSettings;
 use solidbar_shared::ipc::{
-    AdjustArgs, AutostartArgs, BootstrapView, CommandError, DateArgs, EntryArgs, EntryDraft,
+    AdjustArgs, AutostartArgs, BootstrapView, CommandError, DateArgs, EntriesArgs, EntryDraft,
     FormArgs, MembershipArgs, PinArgs, RefreshArgs, ShortcutArgs, TimerSource,
 };
 use solidbar_shared::settings::SettingsPatch;
@@ -69,8 +69,8 @@ pub async fn save_entry(engine: EngineState<'_>, args: EntryDraft) -> Reply {
 }
 
 #[tauri::command]
-pub async fn delete_entry(engine: EngineState<'_>, args: EntryArgs) -> Reply {
-    engine.delete_entry(&args.id).await
+pub async fn delete_entries(engine: EngineState<'_>, args: EntriesArgs) -> Reply {
+    engine.delete_entries(&args.ids).await
 }
 
 #[tauri::command]
@@ -86,6 +86,11 @@ pub async fn start_timer(engine: EngineState<'_>, args: TimerSource) -> Reply {
 #[tauri::command]
 pub async fn stop_timer(engine: EngineState<'_>) -> Reply {
     engine.stop_timer().await
+}
+
+#[tauri::command]
+pub async fn start_break(engine: EngineState<'_>) -> Reply {
+    engine.start_break().await
 }
 
 #[tauri::command]

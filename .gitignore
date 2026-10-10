@@ -7,4 +7,5 @@
 .DS_Store
 /e2e/screenshots
 /e2e/.release-dist
+/e2e/.ui-dist
 /e2e/test-results-artwork

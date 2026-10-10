@@ -2,6 +2,7 @@
 
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
+use solidbar_shared::view::EntryKind;
 
 use crate::model::TimeEntry;
 use crate::time::{WeekStart, to_api};
@@ -59,6 +60,14 @@ pub struct Organization {
     pub currency: String,
 }
 
+/// The organization settings Solidbar follows (`GET /organizations/{org}`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+pub struct OrganizationSettings {
+    /// Members may track breaks. Instances older than the breaks feature don't send it.
+    #[serde(default)]
+    pub breaks_enabled: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct TimeEntryResource {
     pub id: String,
@@ -69,6 +78,9 @@ pub struct TimeEntryResource {
     pub project_id: Option<String>,
     pub organization_id: String,
     pub billable: bool,
+    /// Missing on instances older than the breaks feature.
+    #[serde(rename = "type", default)]
+    pub kind: EntryKind,
 }
 
 impl From<TimeEntryResource> for TimeEntry {
@@ -81,6 +93,7 @@ impl From<TimeEntryResource> for TimeEntry {
             task_id: resource.task_id,
             description: resource.description.unwrap_or_default(),
             billable: resource.billable,
+            kind: resource.kind,
         }
     }
 }
@@ -122,6 +135,9 @@ pub struct NewTimeEntry {
     pub project_id: Option<String>,
     pub task_id: Option<String>,
     pub description: Option<String>,
+    /// Only breaks send it, so instances without the breaks feature see the request they know.
+    #[serde(rename = "type", skip_serializing_if = "EntryKind::is_work")]
+    pub kind: EntryKind,
 }
 
 impl NewTimeEntry {
@@ -134,6 +150,7 @@ impl NewTimeEntry {
             project_id: None,
             task_id: None,
             description: None,
+            kind: EntryKind::Work,
         }
     }
 }
@@ -154,6 +171,9 @@ pub struct TimeEntryChanges {
     pub task_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<Option<String>>,
+    /// Turning work into a break or back.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<EntryKind>,
 }
 
 impl TimeEntryChanges {
@@ -194,6 +214,35 @@ mod tests {
         assert_eq!(json["task_id"], serde_json::Value::Null);
         assert!(json.get("description").is_none());
         assert_eq!(json["end"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn only_breaks_send_their_type() {
+        let start = "2026-10-09T07:00:00Z".parse().unwrap();
+        let work = serde_json::to_value(NewTimeEntry::new("m1", start, None)).unwrap();
+        assert!(work.get("type").is_none());
+        let pause = NewTimeEntry {
+            kind: EntryKind::Break,
+            ..NewTimeEntry::new("m1", start, None)
+        };
+        assert_eq!(serde_json::to_value(pause).unwrap()["type"], "break");
+    }
+
+    #[test]
+    fn entries_without_a_type_are_work() {
+        let resource: TimeEntryResource = serde_json::from_value(serde_json::json!({
+            "id": "e1", "start": "2026-10-09T07:00:00Z", "end": null, "description": null,
+            "task_id": null, "project_id": null, "organization_id": "o1", "billable": false,
+        }))
+        .unwrap();
+        assert_eq!(resource.kind, EntryKind::Work);
+        let resource: TimeEntryResource = serde_json::from_value(serde_json::json!({
+            "id": "e1", "start": "2026-10-09T07:00:00Z", "end": null, "description": null,
+            "task_id": null, "project_id": null, "organization_id": "o1", "billable": false,
+            "type": "break",
+        }))
+        .unwrap();
+        assert!(TimeEntry::from(resource).is_break());
     }
 
     #[test]

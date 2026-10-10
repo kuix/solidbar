@@ -6,6 +6,7 @@ mod ipc;
 mod keymap;
 mod login;
 mod org_chooser;
+mod rows;
 mod settings;
 mod shell;
 mod store;

@@ -446,6 +446,35 @@ code {
   color: var(--text-secondary);
 }
 
+.break-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.break-banner > span:not(.kind-icon) {
+  flex: 1;
+}
+
+.break-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 65%;
+  padding: 1px 8px 1px 5px;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.break-banner button .icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--running);
+}
+
 /* ---------------------------------------------------------------- Week strip */
 
 .week-strip {
@@ -516,8 +545,25 @@ code {
 }
 
 .day-heading-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.break-total {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.break-total .icon {
+  width: 13px;
+  height: 13px;
+  align-self: center;
 }
 
 .empty {
@@ -533,22 +579,26 @@ code {
 
 .entry {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  border-radius: 8px;
 }
 
 .entry + .entry {
   margin-top: 2px;
 }
 
-.entry:hover,
-.entry:focus-within {
+/* One line of the list: a row of the day, or one entry of an opened group. */
+.entry-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.entry-row:hover,
+.entry-row:focus-within {
   background: var(--hover);
 }
 
-.entry.pending {
+.entry-row.pending {
   opacity: 0.6;
 }
 
@@ -568,6 +618,63 @@ code {
 
 .entry-main:focus-visible {
   background: var(--selected);
+}
+
+/* A group of continued entries: the count opens it. */
+.entry-main.with-count {
+  grid-template-columns: auto 1fr auto auto;
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 5px 1px 2px;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.count .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.intervals {
+  list-style: none;
+  margin: 1px 0 0;
+  padding: 0 0 0 16px;
+}
+
+.interval .entry-main {
+  grid-template-columns: 1fr auto;
+}
+
+.interval .notes {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A cup instead of the project dot, for breaks. */
+.kind-icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.kind-icon .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.entry-main > .kind-icon {
+  margin: 0 -3px;
+}
+
+.entry.break .work {
+  font-weight: 400;
 }
 
 .dot {
@@ -608,11 +715,11 @@ code {
   font-weight: 600;
 }
 
-.entry.running .duration {
+.entry-row.running .duration {
   color: var(--running);
 }
 
-.entry.running .dot {
+.entry-row.running .dot {
   animation: pulse 1.6s ease-in-out infinite;
 }
 
@@ -629,9 +736,9 @@ code {
   opacity: 0;
 }
 
-.entry:hover .row-actions,
-.entry:focus-within .row-actions,
-.entry.running .row-actions {
+.entry-row:hover .row-actions,
+.entry-row:focus-within .row-actions,
+.entry-row.running .row-actions {
   opacity: 1;
 }
 
@@ -644,8 +751,11 @@ code {
   color: var(--running);
 }
 
+.break-button {
+  color: var(--text-secondary);
+}
+
 .confirm-delete {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -861,6 +971,26 @@ code {
 
 .form-row .switch {
   margin-left: auto;
+}
+
+.form-row {
+  flex-wrap: wrap;
+}
+
+.form-row .help {
+  flex-basis: 100%;
+  margin-top: 0;
+  text-align: right;
+}
+
+.switch.disabled {
+  color: var(--text-secondary);
+}
+
+.group-note {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 /* The form fills the panel: its fields scroll, the buttons stay at the bottom (like the list's

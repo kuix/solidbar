@@ -1,7 +1,7 @@
-// Serves a release build of the UI with the Content-Security-Policy from tauri.conf.json,
-// completed the way Tauri completes it (hashes of the inline scripts), so a policy that would
-// leave the packaged app blank fails a test instead of shipping. `trunk serve` and
-// `cargo tauri dev` don't apply the policy at all.
+// Serves a build of the UI (debug for the UI tests, release for the release test) with the
+// Content-Security-Policy from tauri.conf.json, completed the way Tauri completes it (hashes of
+// the inline scripts), so a policy that would leave the packaged app blank fails a test instead
+// of shipping. `trunk serve` and `cargo tauri dev` don't apply the policy at all.
 //
 // Usage: node csp-server.mjs <dist dir> <port>
 

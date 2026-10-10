@@ -15,7 +15,8 @@ The official [solidtime desktop app](https://github.com/solidtime-io/solidtime-d
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
 - **Fast entry.** `⌘N`, pick a recent project with `⌘1`–`⌘5` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. New entries continue where the day's last entry ended.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
-- **Simple timer.** `S` starts a timer like the selected entry (or stops the running one). The menu bar shows the running time, or today's total.
+- **Simple timer.** `S` continues the selected entry (or stops the running one). Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
+- **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
 - **Keyboard and VoiceOver first.** Every action has a shortcut; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
@@ -75,12 +76,14 @@ The instance's own OAuth keys (`PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY`, fr
 |---|---|---|
 | Anywhere | `⌥⌘T` | Show or hide Solidbar |
 | | `⌥⌘N` | New entry |
-| | `⌥⌘S` | Stop the timer, or start one on the last project |
+| | `⌥⌘S` | Stop the timer, or start one on the last project; after a break, back to work |
 | Panel | `←` `→` / `⌥←` `⌥→` | Previous/next day / week |
 | | `T` | Today |
 | | `↑` `↓` | Select an entry |
-| | `↩` or `E` | Edit |
-| | `S` | Start/stop timer |
+| | `→` `←` | Show/hide the entries of a continued row |
+| | `↩` or `E` | Edit (a continued row: what its entries share) |
+| | `S` | Continue/stop; during a break, back to work |
+| | `B` | Take a break / end it (if the organization tracks breaks) |
 | | `⌘=` `⌘−` | Add/remove an hour |
 | | `⌫` | Delete (asks first) |
 | | `⌘N` `⌘R` `⌘,` | New entry, refresh, settings |

@@ -39,6 +39,9 @@ pub(crate) struct CatalogData {
     pub projects: Vec<Project>,
     pub tasks: Vec<Task>,
     pub clients: Vec<Client>,
+    /// The organization lets members track breaks.
+    #[serde(default)]
+    pub breaks_enabled: bool,
     pub fetched_at: Timestamp,
 }
 
@@ -151,5 +154,30 @@ impl State {
     pub fn catalog(&self) -> Option<&CatalogData> {
         let membership = self.active_membership()?;
         self.data.catalogs.get(&membership.organization.id)
+    }
+
+    pub fn breaks_enabled(&self) -> bool {
+        self.catalog().is_some_and(|catalog| catalog.breaks_enabled)
+    }
+
+    /// The running break, if the timer is one.
+    pub fn on_break(&self) -> bool {
+        self.data
+            .active_timer
+            .as_ref()
+            .is_some_and(|timer| timer.entry.is_break())
+    }
+
+    /// What "Resume" continues after a break: the work entry of the active organization that
+    /// started last (and not in the future).
+    pub fn last_work_entry(&self, now: Timestamp) -> Option<&TimeEntry> {
+        let membership = self.active_membership()?;
+        self.data
+            .weeks
+            .get(&membership.id)?
+            .values()
+            .flatten()
+            .filter(|entry| !entry.is_break() && entry.start <= now)
+            .max_by_key(|entry| entry.start)
     }
 }

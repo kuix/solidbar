@@ -5,7 +5,7 @@ use leptos::task::spawn_local;
 use solidbar_shared::duration::parse_minutes;
 use solidbar_shared::fuzzy;
 use solidbar_shared::ipc::{EntryDraft, SaveEntry};
-use solidbar_shared::view::{FormInit, WorkOption};
+use solidbar_shared::view::{EntryKind, FormInit, WorkOption};
 use wasm_bindgen::JsCast;
 use web_sys::KeyboardEvent;
 
@@ -15,13 +15,28 @@ use crate::keymap::{Keys, focus_element};
 use crate::store::Store;
 use crate::time_field::TimeField;
 
-/// The selected project and task.
-type Work = (Option<String>, Option<String>);
+/// The selected project and task, or a break.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Work {
+    kind: EntryKind,
+    project_id: Option<String>,
+    task_id: Option<String>,
+}
+
+impl Work {
+    fn is(&self, option: &WorkOption) -> bool {
+        self.kind == option.kind
+            && self.project_id == option.project_id
+            && self.task_id == option.task_id
+    }
+}
 
 #[component]
 pub fn EntryForm(init: FormInit) -> impl IntoView {
     let store = expect_context::<Store>();
-    let editing = init.entry_id.is_some();
+    let group_ids = init.group_ids.clone();
+    let in_group = !group_ids.is_empty();
+    let editing = init.entry_id.is_some() || in_group;
     let running = init.running;
     let day_label = store
         .with_app(|app| {
@@ -34,13 +49,19 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         })
         .flatten()
         .unwrap_or_else(|| init.date.clone());
-    let title = match (editing, running) {
-        (true, true) => "Edit running timer",
-        (true, false) => "Edit time entry",
-        (false, _) => "New time entry",
+    let title = match (in_group, editing, running) {
+        (true, _, _) => format!("Edit {} entries", group_ids.len()),
+        (false, true, true) => "Edit running timer".to_owned(),
+        (false, true, false) => "Edit time entry".to_owned(),
+        (false, false, _) => "New time entry".to_owned(),
     };
 
-    let work = RwSignal::new((init.project_id.clone(), init.task_id.clone()));
+    let work = RwSignal::new(Work {
+        kind: init.kind,
+        project_id: init.project_id.clone(),
+        task_id: init.task_id.clone(),
+    });
+    let is_break = Memo::new(move |_| work.with(|work| work.kind == EntryKind::Break));
     let description = RwSignal::new(init.description.clone());
     let duration = RwSignal::new(init.duration.clone());
     let start_time = RwSignal::new(init.start_time.clone());
@@ -52,7 +73,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
 
     let duration_problem = Memo::new(move |_| {
         let text = duration.get();
-        if running || (text.trim().is_empty() && !attempted.get()) {
+        if running || in_group || (text.trim().is_empty() && !attempted.get()) {
             return None;
         }
         parse_minutes(&text)
@@ -61,14 +82,22 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     });
 
     let pick = Callback::new(move |option: WorkOption| {
-        work.set((option.project_id, option.task_id));
-        if !editing {
+        work.set(Work {
+            kind: option.kind,
+            project_id: option.project_id,
+            task_id: option.task_id,
+        });
+        // Breaks are never billable.
+        if option.kind == EntryKind::Break {
+            billable.set(false);
+        } else if !editing {
             billable.set(option.billable);
         }
     });
 
     let entry_id = init.entry_id.clone();
     let date = init.date.clone();
+    let draft_group_ids = group_ids.clone();
     let submit = Callback::new(move |start_timer: bool| {
         if saving.get_untracked() {
             return;
@@ -76,20 +105,28 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         attempted.set(true);
         let start_timer = start_timer && !editing;
         let duration_text = duration.get_untracked();
-        let duration_optional = running || (start_timer && duration_text.trim().is_empty());
+        // A group keeps the times of its entries.
+        let duration_optional =
+            running || in_group || (start_timer && duration_text.trim().is_empty());
         if !duration_optional && let Err(problem) = parse_minutes(&duration_text) {
             error.set(Some(problem.to_string()));
             focus_element("duration");
             return;
         }
-        if start_time.with_untracked(String::is_empty) {
+        if !in_group && start_time.with_untracked(String::is_empty) {
             error.set(Some("Enter when the entry starts".to_owned()));
             focus_element("start-time");
             return;
         }
-        let (project_id, task_id) = work.get_untracked();
+        let Work {
+            kind,
+            project_id,
+            task_id,
+        } = work.get_untracked();
         let draft = EntryDraft {
             id: entry_id.clone(),
+            group_ids: draft_group_ids.clone(),
+            kind,
             date: date.clone(),
             project_id,
             task_id,
@@ -130,7 +167,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
             .unwrap_or_default();
         let handled = if keys.alt && !keys.meta && !keys.control {
             match keys.digit() {
-                Some(hours @ 1..=8) if !running => {
+                Some(hours @ 1..=8) if !running && !in_group => {
                     duration.set(format!("{hours}:00"));
                     true
                 }
@@ -168,7 +205,23 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         focus_element("work-button");
     });
 
-    let delete_id = init.entry_id.clone();
+    // The row the form was opened from, where "Delete?" is asked.
+    let delete_ids = if in_group {
+        group_ids.clone()
+    } else {
+        init.entry_id.clone().into_iter().collect()
+    };
+    let delete_row = store
+        .selected_row
+        .get_untracked()
+        .or_else(|| delete_ids.first().map(|id| format!("entry-{id}")));
+    let group_note = in_group.then(|| {
+        format!(
+            "Changes apply to all {} entries ({} in total); their times stay as they are.",
+            group_ids.len(),
+            init.duration
+        )
+    });
     view! {
         <form
             class="entry-form"
@@ -191,6 +244,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                         </For>
                     </div>
                 </Show>
+                {group_note.map(|note| view! { <p class="group-note">{note}</p> })}
                 <WorkPicker work pick />
                 <label for="notes">"Notes"</label>
                 <textarea
@@ -201,7 +255,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                     on:input=move |event| description.set(event_target_value(&event))
                 ></textarea>
                 <p id="notes-help" class="help">"⇧↩ for a new line"</p>
-                <Show when=move || !running>
+                <Show when=move || !running && !in_group>
                     <fieldset class="duration-field">
                         <legend>"Duration"</legend>
                         <div class="chips">
@@ -246,17 +300,24 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                     </fieldset>
                 </Show>
                 <div class="form-row">
-                    <label for="start-time">"Start"</label>
-                    <TimeField id="start-time" value=start_time />
-                    <label class="switch">
+                    <Show when=move || !in_group>
+                        <label for="start-time">"Start"</label>
+                        <TimeField id="start-time" value=start_time />
+                    </Show>
+                    <label class="switch" class:disabled=is_break>
                         <input
                             type="checkbox"
                             role="switch"
+                            aria-describedby=move || is_break.get().then_some("billable-help")
                             prop:checked=billable
+                            prop:disabled=is_break
                             on:change=move |event| billable.set(event_target_checked(&event))
                         />
                         "Billable"
                     </label>
+                    <Show when=move || is_break.get()>
+                        <span id="billable-help" class="help">"Breaks aren't billable"</span>
+                    </Show>
                 </div>
             </div>
             <div class="form-footer">
@@ -283,16 +344,17 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                             <kbd aria-hidden="true">"⌘↩"</kbd>
                         </button>
                     </Show>
-                    {delete_id
+                    {delete_row
                         .clone()
-                        .map(|id| {
+                        .filter(|_| !delete_ids.is_empty())
+                        .map(|row| {
                             view! {
                                 <button
                                     type="button"
                                     class="danger"
                                     on:click=move |_| {
                                         store.close_form();
-                                        store.ask_delete(id.clone());
+                                        store.ask_delete(row.clone(), delete_ids.clone());
                                     }
                                 >
                                     "Delete"
@@ -377,24 +439,23 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
     let open = RwSignal::new(false);
     let active = RwSignal::new(0usize);
 
-    let is_selected = move |option: &WorkOption| {
-        work.with_untracked(|(project_id, task_id)| {
-            option.project_id == *project_id && option.task_id == *task_id
-        })
-    };
+    let is_selected = move |option: &WorkOption| work.with_untracked(|work| work.is(option));
     let selected = Memo::new(move |_| {
         work.track();
         options
             .with(|options| options.iter().find(|option| is_selected(option)).cloned())
             .unwrap_or_else(|| {
-                let project_id = work.with_untracked(|(project_id, _)| project_id.clone());
+                let Work {
+                    kind, project_id, ..
+                } = work.get_untracked();
                 WorkOption {
-                    label: if project_id.is_some() {
-                        "Unknown project"
-                    } else {
-                        "No project"
+                    label: match (kind, &project_id) {
+                        (EntryKind::Break, _) => "Break",
+                        (EntryKind::Work, Some(_)) => "Unknown project",
+                        (EntryKind::Work, None) => "No project",
                     }
                     .to_owned(),
+                    kind,
                     project_id,
                     task_id: None,
                     client_name: None,
@@ -566,9 +627,9 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             >
                 {move || {
                     let option = selected.get();
-                    let color = option.color.unwrap_or_else(|| "var(--no-project)".to_owned());
+                    let marker = option_marker(&option);
                     view! {
-                        <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+                        {marker}
                         <span id="work-value" class="value">
                             {option.label}
                             {option.client_name.map(|client| view! { <span class="client">{format!(" · {client}")}</span> })}
@@ -613,7 +674,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                     >
                         {
                             let (index, option) = item;
-                            let color = option.color.clone().unwrap_or_else(|| "var(--no-project)".to_owned());
+                            let marker = option_marker(&option);
                             let label = option.label.clone();
                             let client = option.client_name.clone();
                             let current = is_selected(&option);
@@ -626,7 +687,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                                     on:mousedown=|event| event.prevent_default()
                                     on:click=move |_| choose(option.clone())
                                 >
-                                    <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
+                                    {marker}
                                     <span class="option-label">{label}</span>
                                     {client.map(|client| view! { <span class="client">{client}</span> })}
                                     <span class="current" aria-hidden="true">
@@ -656,4 +717,17 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             </div>
         </div>
     }
+}
+
+/// The project's color dot, or a cup for "Break".
+fn option_marker(option: &WorkOption) -> AnyView {
+    if option.kind == EntryKind::Break {
+        return view! { <span class="kind-icon">{icons::cup()}</span> }.into_any();
+    }
+    let color = option
+        .color
+        .clone()
+        .unwrap_or_else(|| "var(--no-project)".to_owned());
+    view! { <span class="dot" style=format!("background:{color}") aria-hidden="true"></span> }
+        .into_any()
 }

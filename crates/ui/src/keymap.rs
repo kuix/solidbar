@@ -2,7 +2,7 @@
 //! the same on every keyboard layout, e.g. ⌥1 on a Hungarian layout.
 
 use leptos::prelude::*;
-use solidbar_shared::ipc::{AdjustArgs, AdjustEntry, PanelHide, Refresh, RefreshArgs};
+use solidbar_shared::ipc::{PanelHide, Refresh, RefreshArgs};
 use wasm_bindgen::JsCast;
 use web_sys::KeyboardEvent;
 
@@ -226,12 +226,17 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
     } else if typing() {
         return false;
     } else if keys.is("ArrowLeft") || keys.is("ArrowRight") {
-        let toward = if focus_in_week_strip() {
-            Toward::Day
-        } else {
-            Toward::Entries
-        };
-        store.shift_days(if keys.is("ArrowLeft") { -1 } else { 1 }, toward);
+        let right = keys.is("ArrowRight");
+        let in_week_strip = focus_in_week_strip();
+        // → opens a group of continued entries and ← closes it; otherwise they change the day.
+        if in_week_strip || !store.disclose(right) {
+            let toward = if in_week_strip {
+                Toward::Day
+            } else {
+                Toward::Entries
+            };
+            store.shift_days(if right { 1 } else { -1 }, toward);
+        }
     } else if keys.is("Alt+ArrowLeft") || keys.is("Alt+ArrowRight") {
         store.shift_days(
             if keys.is("Alt+ArrowLeft") { -7 } else { 7 },
@@ -241,24 +246,18 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
         store.go_to_today(Toward::Entries);
     } else if keys.is("ArrowUp") || keys.is("ArrowDown") {
         move_selection(store, if keys.is("ArrowUp") { -1 } else { 1 });
-    } else if let Some(entry) = store
-        .selected_entry
-        .get_untracked()
-        .and_then(|id| store.entry(&id))
-    {
-        let editable = store.online() && !entry.pending;
+    } else if keys.is("KeyS") {
+        return store.online() && store.timer_key();
+    } else if keys.is("KeyB") {
+        return store.online() && store.break_key();
+    } else if let Some(row) = store.selected() {
+        let editable = store.online() && !row.pending();
         if keys.is("Enter") || keys.is("KeyE") {
-            store.open_edit_form(entry.id);
-        } else if keys.is("KeyS") && editable {
-            store.toggle_entry_timer(&entry);
+            store.edit(&row);
         } else if (keys.is("Meta+Equal") || keys.is("Meta+Minus")) && editable {
-            let delta_minutes = if keys.is("Meta+Equal") { 60 } else { -60 };
-            store.run::<AdjustEntry>(AdjustArgs {
-                id: entry.id,
-                delta_minutes,
-            });
+            store.adjust(&row, if keys.is("Meta+Equal") { 60 } else { -60 });
         } else if (keys.is("Backspace") || keys.is("Delete")) && editable {
-            store.ask_delete(entry.id);
+            store.ask_delete(row.dom_id(), row.ids());
         } else {
             return false;
         }
@@ -275,26 +274,24 @@ fn focus_in_week_strip() -> bool {
         .is_some_and(|element| element.get_attribute("role").as_deref() == Some("tab"))
 }
 
-/// ↑/↓ through the entries of the selected day.
+/// ↑/↓ through the rows of the selected day.
 fn move_selection(store: Store, step: isize) {
-    let Some(day) = store.selected_day() else {
-        return;
-    };
-    if day.entries.is_empty() {
+    let rows = store.rows();
+    if rows.is_empty() {
         return;
     }
     let current = store
-        .selected_entry
+        .selected_row
         .get_untracked()
-        .and_then(|id| day.entries.iter().position(|entry| entry.id == id));
+        .and_then(|id| rows.iter().position(|row| row.dom_id() == id));
     let next = match current {
-        Some(index) => (index as isize + step).clamp(0, day.entries.len() as isize - 1) as usize,
+        Some(index) => (index as isize + step).clamp(0, rows.len() as isize - 1) as usize,
         None if step > 0 => 0,
-        None => day.entries.len() - 1,
+        None => rows.len() - 1,
     };
-    let id = day.entries[next].id.clone();
-    store.selected_entry.set(Some(id.clone()));
-    focus_element(&format!("entry-{id}"));
+    let id = rows[next].dom_id();
+    store.selected_row.set(Some(id.clone()));
+    focus_element(&id);
 }
 
 #[cfg(test)]
