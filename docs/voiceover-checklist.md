@@ -48,7 +48,7 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] Each shortcut reads as e.g. "Show or hide Solidbar ⌥⌘T, button"; after activating it, pressing a new combination saves it, `⎋` cancels.
 - [ ] Theme options read as a radio group "Appearance".
 - [ ] "Check for updates" reads the current version as its description; after activating it, VO announces "Solidbar is up to date" (or the new version) and focus stays on the button.
-- [ ] The sign-in form's fields have labels, the redirect URI is read with the port field, and errors are announced right away.
+- [ ] The sign-in form's fields have labels, the redirect URIs are read with the client ID field, "Checking the OAuth client…" and then "Waiting for you to approve…" are announced, and errors are announced right away.
 
 ## Visual
 

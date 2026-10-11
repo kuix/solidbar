@@ -17,7 +17,7 @@ use jiff::civil::{Date, Time};
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use solidbar_shared::duration::{format_hm, parse_minutes};
-use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+use solidbar_shared::instance::{InstanceSettings, Redirect};
 use solidbar_shared::ipc::{
     AdjustArgs, BootstrapView, CommandError, EntryDraft, FormArgs, ShortcutArgs, TimerSource,
 };
@@ -165,6 +165,7 @@ impl Engine {
         }
         self.state().auth = AuthPhase::SigningIn {
             instance: settings.clone(),
+            redirect: None,
         };
         self.emit_app();
 
@@ -208,34 +209,46 @@ impl Engine {
         request: LoginRequest,
         cancel: oneshot::Receiver<()>,
     ) -> Result<Session, AuthError> {
-        let code = async {
-            let authorize_url = request.authorize_url();
-            match request.instance().redirect() {
-                RedirectMode::Loopback { port } => {
-                    let listener = LoopbackListener::bind(port).await?;
-                    self.open_browser(authorize_url.as_str())?;
-                    listener.wait_for_code(request.state()).await
-                }
-                RedirectMode::DeepLink => {
-                    let (redirect_tx, redirect_rx) = oneshot::channel();
-                    self.login_control().redirect = Some(redirect_tx);
-                    self.open_browser(authorize_url.as_str())?;
-                    let redirect = redirect_rx.await.map_err(|_| AuthError::Cancelled)?;
-                    let redirect = Url::parse(&redirect)
-                        .map_err(|error| AuthError::Protocol(error.to_string()))?;
-                    request.code_from_redirect(&redirect)
-                }
+        let attempt = async {
+            // Listening first gives the port to ask about; the system picks a free one.
+            let listener = LoopbackListener::bind().await?;
+            let redirect = request.choose_redirect(listener.port()).await?;
+            if let AuthPhase::SigningIn {
+                redirect: chosen, ..
+            } = &mut self.state().auth
+            {
+                *chosen = Some(redirect);
             }
+            self.emit_app();
+            let authorize_url = request.authorize_url(redirect);
+            let code = match redirect {
+                Redirect::Loopback { .. } => {
+                    self.open_browser(authorize_url.as_str())?;
+                    listener.wait_for_code(request.state()).await?
+                }
+                Redirect::DeepLink => {
+                    drop(listener);
+                    let (link_tx, link_rx) = oneshot::channel();
+                    self.login_control().redirect = Some(link_tx);
+                    self.open_browser(authorize_url.as_str())?;
+                    let link = link_rx.await.map_err(|_| AuthError::Cancelled)?;
+                    let link = Url::parse(&link)
+                        .map_err(|error| AuthError::Protocol(error.to_string()))?;
+                    request.code_from_redirect(&link)?
+                }
+            };
+            Ok::<_, AuthError>((redirect, code))
         };
-        let code = tokio::select! {
-            code = tokio::time::timeout(LOGIN_TIMEOUT, code) => {
-                code.map_err(|_| AuthError::TimedOut)??
+        let (redirect, code) = tokio::select! {
+            attempt = tokio::time::timeout(LOGIN_TIMEOUT, attempt) => {
+                attempt.map_err(|_| AuthError::TimedOut)??
             }
             _ = cancel => return Err(AuthError::Cancelled),
         };
         request
             .finish(
                 self.deps.http.clone(),
+                redirect,
                 &code,
                 self.deps.tokens.clone(),
                 self.deps.clock.clone(),

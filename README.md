@@ -41,6 +41,11 @@ Requires macOS 12 or later, on Apple silicon or Intel. Solidbar updates itself; 
 
 Solidbar signs in through your browser with OAuth 2 and PKCE: it creates a new one-time key pair (code verifier and challenge) for every sign-in, so there's no client secret or API token to copy. The tokens are kept in your login keychain.
 
+After you approve Solidbar, the browser comes back to it in one of two ways, and Solidbar asks solidtime which one the OAuth client allows before it opens the browser:
+
+- **`http://127.0.0.1/callback`**, a local address Solidbar listens on while you sign in, on a free port the system picks (OAuth servers accept loopback redirects on any port). Preferred: no other app can take it over.
+- **`solidtime://oauth/callback`**, a link macOS hands to Solidbar. Works when Solidbar is in Applications; if the official solidtime desktop app is installed too, macOS may hand the sign-in to that app instead.
+
 ### app.solidtime.io
 
 Click **Use app.solidtime.io**, then **Sign in with browser**.
@@ -52,21 +57,18 @@ Your instance needs a public OAuth client for Solidbar. Create one where solidti
 ```sh
 docker compose exec scheduler php artisan passport:client \
   --name=Solidbar --public -n \
-  --redirect_uri="http://127.0.0.1:47821/callback,solidtime://oauth/callback"
+  --redirect_uri="http://127.0.0.1/callback,solidtime://oauth/callback"
 ```
 
-(Without Docker, run the same `php artisan passport:client …` in the solidtime directory.) The command prints the **client ID**. A public client has no secret, and with both redirect URIs either sign-in mode below works.
+(Without Docker, run the same `php artisan passport:client …` in the solidtime directory.) The command prints the **client ID**. A public client has no secret. A client registered with a port in its loopback address (e.g. `http://127.0.0.1:47821/callback`) works too, as the port doesn't count.
 
 Then, in Solidbar:
 
 1. **solidtime address:** your instance, e.g. `https://time.example.com`.
 2. **OAuth client ID:** the ID from the command.
-3. **How the browser returns to Solidbar:**
-   - **Local address (self-hosted):** the browser comes back to `http://127.0.0.1:47821/callback`. Recommended, and it works next to the official desktop app. The port must match the redirect URI.
-   - **solidtime:// link:** needs `solidtime://oauth/callback`. If the official solidtime desktop app is installed too, macOS may hand the sign-in to that app instead.
-4. **Sign in with browser**, approve Solidbar, and you're back in the panel. If you belong to several organizations, pick the one to work in.
+3. **Sign in with browser**, approve Solidbar, and you're back in the panel. If you belong to several organizations, pick the one to work in.
 
-Already set up the official desktop app on your instance (`--name=desktop --redirect_uri=solidtime://oauth/callback`)? Its client ID works too, with the **solidtime:// link** option.
+Already set up the official desktop app on your instance (`--name=desktop --redirect_uri=solidtime://oauth/callback`)? Its client ID works too; Solidbar then comes back through the `solidtime://` link.
 
 The instance's own OAuth keys (`PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY`, from `php artisan self-host:generate-keys`) are part of setting up solidtime itself, not Solidbar.
 
@@ -114,7 +116,7 @@ cargo tauri build --target universal-apple-darwin
 
 Debug builds keep the session in a private file instead of the keychain, so rebuilds don't trigger keychain prompts.
 
-macOS only delivers `solidtime://` links to an app bundle, so with `cargo tauri dev` sign in with "Local address"; otherwise the browser's redirect starts whichever bundle claims the scheme (another Solidbar build, or the official solidtime app).
+macOS only delivers `solidtime://` links to an app bundle, so with `cargo tauri dev` sign in with a client that allows `http://127.0.0.1/callback`; otherwise the browser's redirect starts whichever bundle claims the scheme (another Solidbar build, or the official solidtime app).
 
 `cd e2e && npm run artwork` renders the README images (screenshots of the current UI, and the cover) into `docs/images`, and the DMG window background into `src-tauri/dmg`.
 

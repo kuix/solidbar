@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
-use solidbar_shared::instance::InstanceSettings;
+use solidbar_shared::instance::{InstanceSettings, Redirect};
 use solidbar_shared::settings::Settings;
 
 use crate::api::Api;
@@ -15,9 +15,17 @@ use crate::model::recents::WorkPair;
 use crate::time::{Calendar, Week, WeekStart};
 
 pub(crate) enum AuthPhase {
-    SignedOut { error: Option<String> },
-    SigningIn { instance: InstanceSettings },
-    SignedIn { api: Api },
+    SignedOut {
+        error: Option<String>,
+    },
+    SigningIn {
+        instance: InstanceSettings,
+        /// How the browser will return, once found out.
+        redirect: Option<Redirect>,
+    },
+    SignedIn {
+        api: Api,
+    },
 }
 
 /// Data loaded from solidtime; cached on disk so the panel opens instantly.

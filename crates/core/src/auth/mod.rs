@@ -5,6 +5,7 @@ mod error;
 mod instance;
 mod login;
 mod pkce;
+mod probe;
 mod session;
 mod store;
 mod token;

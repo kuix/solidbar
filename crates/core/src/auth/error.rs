@@ -14,8 +14,13 @@ pub enum AuthError {
     StateMismatch,
     #[error("solidtime refused the sign-in: {0}")]
     Denied(String),
-    #[error("Port {0} is already in use. Choose another port in the instance settings.")]
-    PortInUse(u16),
+    #[error(
+        "solidtime doesn't accept this OAuth client ID. Check the ID, and that the client allows \
+         http://127.0.0.1/callback or solidtime://oauth/callback as its redirect URI."
+    )]
+    ClientRejected,
+    #[error("There's no solidtime sign-in at this address. Check the solidtime address.")]
+    NoSignInPage,
     #[error("Can't reach solidtime: {0}")]
     Network(String),
     #[error("Unexpected response from solidtime: {0}")]

@@ -67,8 +67,9 @@ fn auth_view(state: &State) -> AuthView {
             instance: state.settings.instance.clone(),
             error: error.clone(),
         },
-        AuthPhase::SigningIn { instance } => AuthView::SigningIn {
+        AuthPhase::SigningIn { instance, redirect } => AuthView::SigningIn {
             instance: instance.clone(),
+            redirect: *redirect,
         },
         AuthPhase::SignedIn { .. } => AuthView::SignedIn {
             user_name: state

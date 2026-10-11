@@ -5,11 +5,11 @@ use std::sync::{Arc, Mutex};
 use jiff::SignedDuration;
 use jiff::tz::TimeZone;
 use serde_json::{Value, json};
-use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+use solidbar_shared::instance::{DEEP_LINK_REDIRECT, InstanceSettings, Redirect};
 use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FormArgs, TimerSource};
 use solidbar_shared::settings::Settings;
 use solidbar_shared::view::{AppView, AuthView, Catalog, EntryKind, Notice};
-use wiremock::matchers::{body_json, method, path, query_param};
+use wiremock::matchers::{body_json, method, path, query_param, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{Engine, EngineDeps};
@@ -69,23 +69,21 @@ struct Harness {
     directory: tempfile::TempDir,
 }
 
-fn instance_settings(server: &MockServer, redirect: RedirectMode) -> InstanceSettings {
+fn instance_settings(server: &MockServer) -> InstanceSettings {
     InstanceSettings {
         url: server.uri(),
         client_id: "client-1".to_owned(),
-        redirect,
     }
 }
 
 fn harness(
     server: &MockServer,
-    redirect: RedirectMode,
     signed_in: bool,
     browser: impl Fn(String) + Send + Sync + 'static,
 ) -> Harness {
     let directory = tempfile::tempdir().unwrap();
     let settings = Settings {
-        instance: instance_settings(server, redirect),
+        instance: instance_settings(server),
         ..Settings::default()
     };
     std::fs::write(
@@ -208,7 +206,7 @@ async fn signed_in_with_week(server: &MockServer, entries: Vec<Value>) -> Harnes
     mount_profile(server).await;
     mount_active(server, None).await;
     mount_week(server, entries).await;
-    let harness = harness(server, RedirectMode::DeepLink, true, |_| {});
+    let harness = harness(server, true, |_| {});
     harness.engine.refresh(false).await.unwrap();
     harness
 }
@@ -560,7 +558,7 @@ async fn continuing_an_entry_stops_the_running_timer_first() {
         ],
     )
     .await;
-    let harness = harness(&server, RedirectMode::DeepLink, true, |_| {});
+    let harness = harness(&server, true, |_| {});
     harness.engine.refresh(false).await.unwrap();
     assert!(harness.sink.last().tray.timer_running);
 
@@ -635,7 +633,7 @@ async fn signed_in_with_timer(
     mount_breaks(server, breaks).await;
     mount_active(server, active).await;
     mount_week(server, entries).await;
-    let harness = harness(server, RedirectMode::DeepLink, true, |_| {});
+    let harness = harness(server, true, |_| {});
     harness.engine.refresh(false).await.unwrap();
     harness
 }
@@ -892,7 +890,7 @@ async fn an_expired_session_returns_to_the_sign_in_screen() {
         .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": "invalid_grant" })))
         .mount(&server)
         .await;
-    let harness = harness(&server, RedirectMode::DeepLink, true, |_| {});
+    let harness = harness(&server, true, |_| {});
     assert!(harness.engine.refresh(false).await.is_err());
 
     let view = harness.sink.last();
@@ -914,6 +912,32 @@ fn query(url: &str, key: &str) -> String {
         .unwrap()
 }
 
+/// The authorize page, as an anonymous visitor sees it: sent on to the login page for a
+/// redirect the client allows, `invalid_client` for one it doesn't.
+async fn mount_authorize(server: &MockServer, loopback: bool, deep_link: bool) {
+    let answer = |allowed: bool| {
+        if allowed {
+            ResponseTemplate::new(302).insert_header("location", "/login")
+        } else {
+            ResponseTemplate::new(401).set_body_json(json!({
+                "error": "invalid_client", "error_description": "Client authentication failed",
+            }))
+        }
+    };
+    Mock::given(method("GET"))
+        .and(path("/oauth/authorize"))
+        .and(query_param("redirect_uri", DEEP_LINK_REDIRECT))
+        .respond_with(answer(deep_link))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/oauth/authorize"))
+        .and(query_param_contains("redirect_uri", "http://127.0.0.1:"))
+        .respond_with(answer(loopback))
+        .mount(server)
+        .await;
+}
+
 async fn mount_token_exchange(server: &MockServer) {
     Mock::given(method("POST"))
         .and(path("/oauth/token"))
@@ -932,37 +956,54 @@ async fn signs_in_through_the_loopback_redirect() {
     mount_active(&server, None).await;
     mount_week(&server, vec![]).await;
     mount_token_exchange(&server).await;
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let harness = harness(
-        &server,
-        RedirectMode::Loopback { port },
-        false,
-        |authorize| {
-            // The browser follows the redirect once the person approves.
-            tokio::spawn(async move {
-                let redirect = format!(
-                    "{}?code=code-1&state={}",
-                    query(&authorize, "redirect_uri"),
-                    query(&authorize, "state")
-                );
-                reqwest::get(redirect).await.unwrap();
-            });
-        },
-    );
+    mount_authorize(&server, true, true).await;
+    let opened = Arc::new(Mutex::new(Vec::<String>::new()));
+    let recorder = opened.clone();
+    let harness = harness(&server, false, move |authorize| {
+        recorder.lock().unwrap().push(authorize.clone());
+        // The browser follows the redirect once the person approves.
+        tokio::spawn(async move {
+            let redirect = format!(
+                "{}?code=code-1&state={}",
+                query(&authorize, "redirect_uri"),
+                query(&authorize, "state")
+            );
+            reqwest::get(redirect).await.unwrap();
+        });
+    });
 
-    let settings = instance_settings(&server, RedirectMode::Loopback { port });
-    harness.engine.login(settings).await.unwrap();
+    harness
+        .engine
+        .login(instance_settings(&server))
+        .await
+        .unwrap();
 
     assert!(matches!(
         harness.sink.last().auth,
         AuthView::SignedIn { .. }
     ));
     assert!(harness.tokens.load(&harness.account).unwrap().is_some());
-    assert!(harness.engine.settings().instance.redirect == RedirectMode::Loopback { port });
+    // On a port the system picked, and the token request named the same redirect.
+    let redirect_uri = query(&opened.lock().unwrap()[0], "redirect_uri");
+    let port: u16 = redirect_uri
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix("/callback"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_ne!(port, 0);
+    let token_request = server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|request| request.url.path() == "/oauth/token")
+        .unwrap();
+    let form: std::collections::HashMap<String, String> =
+        url::form_urlencoded::parse(&token_request.body)
+            .into_owned()
+            .collect();
+    assert_eq!(form["redirect_uri"], redirect_uri);
 }
 
 #[tokio::test]
@@ -974,10 +1015,12 @@ async fn signs_in_through_a_deep_link_and_can_be_cancelled() {
     mount_token_exchange(&server).await;
     let opened = Arc::new(Mutex::new(Vec::<String>::new()));
     let recorder = opened.clone();
-    let harness = harness(&server, RedirectMode::DeepLink, false, move |url| {
+    // The client only allows the solidtime:// link.
+    mount_authorize(&server, false, true).await;
+    let harness = harness(&server, false, move |url| {
         recorder.lock().unwrap().push(url);
     });
-    let settings = instance_settings(&server, RedirectMode::DeepLink);
+    let settings = instance_settings(&server);
 
     // Cancelled: back to the sign-in screen without an error.
     let engine = harness.engine.clone();
@@ -988,9 +1031,16 @@ async fn signs_in_through_a_deep_link_and_can_be_cancelled() {
     while opened.lock().unwrap().is_empty() {
         tokio::task::yield_now().await;
     }
+    assert_eq!(
+        query(&opened.lock().unwrap()[0], "redirect_uri"),
+        DEEP_LINK_REDIRECT
+    );
     assert!(matches!(
         harness.sink.last().auth,
-        AuthView::SigningIn { .. }
+        AuthView::SigningIn {
+            redirect: Some(Redirect::DeepLink),
+            ..
+        }
     ));
     harness.engine.cancel_login();
     attempt.await.unwrap().unwrap();
@@ -1014,5 +1064,33 @@ async fn signs_in_through_a_deep_link_and_can_be_cancelled() {
     assert!(matches!(
         harness.sink.last().auth,
         AuthView::SignedIn { .. }
+    ));
+}
+
+#[tokio::test]
+async fn a_client_solidtime_refuses_is_reported_without_opening_the_browser() {
+    let server = MockServer::start().await;
+    mount_authorize(&server, false, false).await;
+    let opened = Arc::new(Mutex::new(Vec::<String>::new()));
+    let recorder = opened.clone();
+    let harness = harness(&server, false, move |url| {
+        recorder.lock().unwrap().push(url);
+    });
+
+    let error = harness
+        .engine
+        .login(instance_settings(&server))
+        .await
+        .unwrap_err();
+
+    assert!(
+        error
+            .message
+            .contains("doesn't accept this OAuth client ID")
+    );
+    assert!(opened.lock().unwrap().is_empty());
+    assert!(matches!(
+        harness.sink.last().auth,
+        AuthView::SignedOut { error: Some(_), .. }
     ));
 }

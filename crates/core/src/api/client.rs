@@ -270,7 +270,7 @@ mod tests {
     use super::*;
     use crate::auth::{Instance, MemoryTokenStore, TokenSet};
     use crate::ports::testing::FixedClock;
-    use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+    use solidbar_shared::instance::InstanceSettings;
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -284,7 +284,6 @@ mod tests {
         let instance = Instance::new(&InstanceSettings {
             url,
             client_id: "client-1".to_owned(),
-            redirect: RedirectMode::DeepLink,
         })
         .unwrap();
         let session = Session::start(

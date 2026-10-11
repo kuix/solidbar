@@ -137,7 +137,7 @@ mod tests {
     use super::*;
     use crate::auth::MemoryTokenStore;
     use crate::ports::testing::FixedClock;
-    use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+    use solidbar_shared::instance::InstanceSettings;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -152,7 +152,6 @@ mod tests {
         let instance = Instance::new(&InstanceSettings {
             url: server.uri(),
             client_id: "client-1".to_owned(),
-            redirect: RedirectMode::DeepLink,
         })
         .unwrap();
         let store = Arc::new(MemoryTokenStore::default());

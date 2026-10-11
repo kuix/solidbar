@@ -1,8 +1,6 @@
 //! Receiving the OAuth redirect: parsing it, and the loopback listener that serves
 //! `http://127.0.0.1:<port>/callback`.
 
-use std::io::ErrorKind;
-
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use url::Url;
@@ -38,14 +36,12 @@ pub struct LoopbackListener {
 }
 
 impl LoopbackListener {
-    /// Binds before the browser opens, so a busy port is reported right away.
-    pub async fn bind(port: u16) -> Result<Self, AuthError> {
-        let listener = TcpListener::bind(("127.0.0.1", port))
+    /// Listens on a port the system picks, so it's always free: authorization servers accept
+    /// a loopback redirect on any port (RFC 8252, section 7.3).
+    pub async fn bind() -> Result<Self, AuthError> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
             .await
-            .map_err(|error| match error.kind() {
-                ErrorKind::AddrInUse => AuthError::PortInUse(port),
-                _ => AuthError::Network(error.to_string()),
-            })?;
+            .map_err(|error| AuthError::Network(error.to_string()))?;
         Ok(Self { listener })
     }
 
@@ -158,8 +154,9 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_serves_the_callback_and_ignores_other_requests() {
-        let listener = LoopbackListener::bind(0).await.unwrap();
+        let listener = LoopbackListener::bind().await.unwrap();
         let port = listener.port();
+        assert_ne!(port, 0);
         let waiting = tokio::spawn(async move { listener.wait_for_code("s1").await });
 
         let client = reqwest::Client::new();
@@ -184,9 +181,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_busy_port_is_reported() {
-        let first = LoopbackListener::bind(0).await.unwrap();
-        let second = LoopbackListener::bind(first.port()).await;
-        assert!(matches!(second, Err(AuthError::PortInUse(_))));
+    async fn every_sign_in_gets_a_free_port_of_its_own() {
+        let first = LoopbackListener::bind().await.unwrap();
+        let second = LoopbackListener::bind().await.unwrap();
+        assert_ne!(first.port(), second.port());
     }
 }

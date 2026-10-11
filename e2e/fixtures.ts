@@ -37,7 +37,6 @@ const settings = {
   instance: {
     url: "https://time.example.com",
     client_id: "client-1",
-    redirect: { mode: "loopback", port: 47821 },
   },
   active_membership_id: "m1",
   workday_start: "09:00",
@@ -243,4 +242,11 @@ export function signedOut(error: string | null = null): Fixture {
     },
     catalog: { options: [], recents: [] },
   };
+}
+
+/** Signing in: `redirect` is null while Solidbar checks which redirect the client allows. */
+export function signingIn(redirect: { mode: "loopback"; port: number } | { mode: "deep_link" } | null): Fixture {
+  const fixture = signedOut();
+  fixture.app.auth = { status: "signing_in", instance: settings.instance, redirect };
+  return fixture;
 }

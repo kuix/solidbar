@@ -20,23 +20,23 @@ struct TokenResponse {
 }
 
 #[derive(Deserialize)]
-struct OAuthErrorBody {
-    error: String,
-    error_description: Option<String>,
+pub(super) struct OAuthErrorBody {
+    pub error: String,
+    pub error_description: Option<String>,
 }
 
 pub async fn exchange_code(
     http: &reqwest::Client,
     instance: &Instance,
+    redirect_uri: &str,
     code: &str,
     verifier: &str,
     now: Timestamp,
 ) -> Result<TokenSet, AuthError> {
-    let redirect_uri = instance.redirect_uri();
     let form = [
         ("grant_type", "authorization_code"),
         ("client_id", instance.client_id()),
-        ("redirect_uri", redirect_uri.as_str()),
+        ("redirect_uri", redirect_uri),
         ("code_verifier", verifier),
         ("code", code),
     ];
@@ -98,7 +98,7 @@ async fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+    use solidbar_shared::instance::InstanceSettings;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -106,7 +106,6 @@ mod tests {
         Instance::new(&InstanceSettings {
             url: server.uri(),
             client_id: "client-1".to_owned(),
-            redirect: RedirectMode::Loopback { port: 47_821 },
         })
         .unwrap()
     }
@@ -139,6 +138,7 @@ mod tests {
         let tokens = exchange_code(
             &reqwest::Client::new(),
             &instance(&server),
+            "http://127.0.0.1:47821/callback",
             "code-1",
             "verifier-1",
             now(),
@@ -198,8 +198,15 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let result =
-            exchange_code(&reqwest::Client::new(), &instance(&server), "c", "v", now()).await;
+        let result = exchange_code(
+            &reqwest::Client::new(),
+            &instance(&server),
+            "solidtime://oauth/callback",
+            "c",
+            "v",
+            now(),
+        )
+        .await;
         assert_eq!(
             result,
             Err(AuthError::Denied("Client authentication failed".to_owned()))

@@ -1,4 +1,4 @@
-use solidbar_shared::instance::{InstanceSettings, RedirectMode};
+use solidbar_shared::instance::InstanceSettings;
 use thiserror::Error;
 use url::Url;
 
@@ -10,8 +10,6 @@ pub enum InstanceError {
     InsecureUrl,
     #[error("Enter the OAuth client ID")]
     MissingClientId,
-    #[error("Choose a port between 1024 and 65535")]
-    InvalidPort,
 }
 
 /// A validated solidtime instance.
@@ -20,7 +18,6 @@ pub struct Instance {
     /// Always ends with `/` so relative API paths join below it, even with a path prefix.
     base: Url,
     client_id: String,
-    redirect: RedirectMode,
 }
 
 impl Instance {
@@ -47,17 +44,7 @@ impl Instance {
         if client_id.is_empty() {
             return Err(InstanceError::MissingClientId);
         }
-        if let RedirectMode::Loopback { port } = settings.redirect
-            && port < 1024
-        {
-            return Err(InstanceError::InvalidPort);
-        }
-
-        Ok(Self {
-            base,
-            client_id,
-            redirect: settings.redirect,
-        })
+        Ok(Self { base, client_id })
     }
 
     /// `path` is relative, e.g. `api/v1/users/me`.
@@ -69,14 +56,6 @@ impl Instance {
 
     pub fn client_id(&self) -> &str {
         &self.client_id
-    }
-
-    pub fn redirect(&self) -> RedirectMode {
-        self.redirect
-    }
-
-    pub fn redirect_uri(&self) -> String {
-        self.redirect.redirect_uri()
     }
 
     /// Identifies the stored session: one per instance and OAuth client.
@@ -139,14 +118,10 @@ mod tests {
     }
 
     #[test]
-    fn requires_a_client_id_and_a_usable_port() {
+    fn requires_a_client_id() {
         let mut missing = InstanceSettings::cloud();
         missing.client_id = "  ".to_owned();
         assert_eq!(Instance::new(&missing), Err(InstanceError::MissingClientId));
-
-        let mut low_port = InstanceSettings::cloud();
-        low_port.redirect = RedirectMode::Loopback { port: 80 };
-        assert_eq!(Instance::new(&low_port), Err(InstanceError::InvalidPort));
     }
 
     #[test]

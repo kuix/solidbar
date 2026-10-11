@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::instance::InstanceSettings;
+use crate::instance::{InstanceSettings, Redirect};
 use crate::settings::Settings;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -50,6 +50,9 @@ pub enum AuthView {
     },
     SigningIn {
         instance: InstanceSettings,
+        /// How the browser will return; `None` while Solidbar is still finding out.
+        #[serde(default)]
+        redirect: Option<Redirect>,
     },
     SignedIn {
         user_name: String,
