@@ -579,12 +579,17 @@ code {
 
 /* ---------------------------------------------------------------- Day */
 
-.day-panel {
+.day-panel,
+.settings-panel {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 8px 10px;
   position: relative;
+}
+
+.settings-panel {
+  border-top: 1px solid var(--separator);
 }
 
 .day-heading {

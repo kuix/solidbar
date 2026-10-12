@@ -272,15 +272,18 @@ test("Escape hides the panel", async ({ page }) => {
   expect(await invoked(page, "panel_hide")).toHaveLength(1);
 });
 
-test("settings open with ⌘, and close with Escape", async ({ page }) => {
+test("settings open with ⌘, in place of the days, and close with Escape", async ({ page }) => {
   await open(page);
+  const days = page.getByRole("tablist", { name: "Days of the week" });
   await page.keyboard.press("Meta+Comma");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(days).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Show or hide Solidbar ⌥⌘T", exact: true })).toBeVisible();
   await page.screenshot({ path: "screenshots/settings.png", fullPage: true });
   await expectAccessible(page);
   await page.keyboard.press("Escape");
   await expect(page.locator("#entry-e1")).toBeFocused();
+  await expect(days).toBeVisible();
 });
 
 test("the gear opens Settings, and pressed again goes back to the list", async ({ page }) => {
