@@ -200,6 +200,8 @@ commands! {
     PanelHide = "panel_hide", () => ();
     PanelSetPinned = "panel_set_pinned", PinArgs => ();
     OpenInBrowser = "open_in_browser", () => ();
+    /// Opens the licenses of Solidbar and the crates it's built with in the browser.
+    OpenLicenses = "open_licenses", () => ();
     Quit = "quit", () => ();
     GetUpdate = "update_get", () => UpdateView;
     /// Checks now and reports the result, including "up to date" and errors.

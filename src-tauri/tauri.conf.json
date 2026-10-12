@@ -53,6 +53,10 @@
     ],
     "category": "Productivity",
     "shortDescription": "A menu bar client for solidtime",
+    "copyright": "Copyright © 2026 kuix design s.r.o. and the Solidbar contributors",
+    "resources": {
+      "../THIRD_PARTY_LICENSES.html": "THIRD_PARTY_LICENSES.html"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -1,0 +1,52 @@
+# `cargo about generate --workspace --locked --fail about.hbs -o THIRD_PARTY_LICENSES.html` writes
+# the licenses of the crates in Solidbar, which the app bundles and opens from Settings. CI fails
+# when the file is out of date, e.g. after a dependency change.
+
+# The app (Apple silicon and Intel) and its wasm32 interface; build- and dev-dependencies don't ship.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "wasm32-unknown-unknown"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# Solidbar's own crates (publish = false); their license is in LICENSE-MIT and LICENSE-APACHE.
+private = { ignore = true }
+
+# Allowed licenses, as in deny.toml. When a crate offers a choice, the first one listed here is used.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# These two would otherwise list a source file that quotes the license instead of the license
+# file. The checksums pin the files; when a new version changes them, cargo-about says so.
+[encoding_rs.clarify]
+license = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+
+[[encoding_rs.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c"
+
+[[encoding_rs.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+
+[[encoding_rs.clarify.files]]
+path = "LICENSE-WHATWG"
+license = "BSD-3-Clause"
+checksum = "838118388fe5c2e7f1dbbaeed13e1c7f3ebf88be91319c7c1d77c18e987d1a50"
+
+[schemars_derive.clarify]
+license = "MIT"
+
+[[schemars_derive.clarify.files]]
+path = "LICENSE"
+license = "MIT"
+checksum = "1954992a2b32e8a2af24a4c11b726902e344c1934b947a77f04d404908f8db30"

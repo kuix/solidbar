@@ -125,6 +125,14 @@ macOS only delivers `solidtime://` links to an app bundle, so with `cargo tauri 
 
 `cd e2e && npm run artwork` renders the README images (screenshots of the current UI, and the cover) into `docs/images`, and the DMG window background into `src-tauri/dmg`.
 
+Every crate in the app has to be under a license that `deny.toml` allows, and the app ships their license texts in `THIRD_PARTY_LICENSES.html` (Settings › Licenses). After adding or updating dependencies, check them and write the file again; CI fails when it's out of date:
+
+```sh
+cargo binstall cargo-deny@0.20.2 cargo-about@0.9.2
+cargo deny check licenses
+cargo about generate --workspace --locked --fail about.hbs -o THIRD_PARTY_LICENSES.html
+```
+
 `e2e/tests/release.spec.ts` runs a release build of the UI under the Content-Security-Policy from `tauri.conf.json`: the dev server doesn't apply the policy, so a mistake there would otherwise only show up as a blank panel in the packaged app.
 
 Layout:
@@ -156,4 +164,8 @@ Losing the update signing key means existing installs can't update any more, so 
 
 ## License
 
-MIT or Apache-2.0, at your option.
+Solidbar is © 2026 kuix design s.r.o. and the Solidbar contributors, available under the [MIT License](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your option. It comes as is, without warranty of any kind.
+
+It's built with open-source crates under their own licenses (MIT, Apache-2.0, BSD-3-Clause, MPL-2.0 and others); [`THIRD_PARTY_LICENSES.html`](THIRD_PARTY_LICENSES.html) lists them with their texts, and the app opens it from Settings › Licenses.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Solidbar by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

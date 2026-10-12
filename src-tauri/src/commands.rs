@@ -12,7 +12,9 @@ use solidbar_shared::ipc::{
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateView;
 use solidbar_shared::view::FormInit;
+use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::autostart::Autostart;
 use crate::{panel, shortcuts, updates};
@@ -149,6 +151,22 @@ pub fn panel_set_pinned(app: AppHandle, args: PinArgs) {
 #[tauri::command]
 pub fn open_in_browser(engine: EngineState<'_>) -> Reply {
     engine.open_in_browser()
+}
+
+/// THIRD_PARTY_LICENSES.html, which `cargo about` writes and the bundle carries as a resource.
+#[tauri::command]
+pub fn open_licenses(app: AppHandle) -> Reply {
+    let cant_open = |error: String| {
+        log::warn!("couldn't open the licenses: {error}");
+        CommandError::new("Solidbar can't open its licenses.")
+    };
+    let path = app
+        .path()
+        .resolve("THIRD_PARTY_LICENSES.html", BaseDirectory::Resource)
+        .map_err(|error| cant_open(error.to_string()))?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|error| cant_open(error.to_string()))
 }
 
 #[tauri::command]

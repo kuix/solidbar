@@ -4,9 +4,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use solidbar_shared::clock::ClockFormat;
 use solidbar_shared::ipc::{
-    AuthLogout, AutostartArgs, GetAutostart, InstallUpdate, MembershipArgs, OpenInBrowser, Quit,
-    ResumeShortcuts, SelectOrg, SetAutostart, SetShortcut, ShortcutArgs, SuspendShortcuts,
-    UpdateSettings,
+    AuthLogout, AutostartArgs, GetAutostart, InstallUpdate, MembershipArgs, OpenInBrowser,
+    OpenLicenses, Quit, ResumeShortcuts, SelectOrg, SetAutostart, SetShortcut, ShortcutArgs,
+    SuspendShortcuts, UpdateSettings,
 };
 use solidbar_shared::settings::{SettingsPatch, Theme};
 use solidbar_shared::shortcuts::GlobalAction;
@@ -114,6 +114,7 @@ pub fn Settings() -> impl IntoView {
     };
 
     let open_solidtime = move |_| store.run::<OpenInBrowser>(());
+    let open_licenses = move |_| store.run::<OpenLicenses>(());
     let sign_out = move |_| store.run::<AuthLogout>(());
     let quit = move |_| store.run::<Quit>(());
 
@@ -249,6 +250,16 @@ pub fn Settings() -> impl IntoView {
                 .collect_view()}
 
             <Updates />
+
+            <h3>"About"</h3>
+            <p id="about-help" class="help">
+                "© 2026 kuix design s.r.o. and contributors. Free to use under the MIT or Apache 2.0 license, as is, without warranty."
+            </p>
+            <div class="button-row">
+                <button type="button" aria-describedby="about-help" on:click=open_licenses>
+                    "Licenses"
+                </button>
+            </div>
 
             <div class="button-row">
                 <button type="button" class="danger" on:click=quit>

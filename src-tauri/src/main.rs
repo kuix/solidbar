@@ -59,6 +59,7 @@ fn main() {
             commands::panel_hide,
             commands::panel_set_pinned,
             commands::open_in_browser,
+            commands::open_licenses,
             commands::quit,
             commands::update_get,
             commands::update_check,

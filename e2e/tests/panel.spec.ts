@@ -283,6 +283,17 @@ test("settings open with ⌘, and close with Escape", async ({ page }) => {
   await expect(page.locator("#entry-e1")).toBeFocused();
 });
 
+test("Settings opens the licenses, which say there's no warranty", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Meta+Comma");
+  const licenses = page.getByRole("button", { name: "Licenses", exact: true });
+  await expect(licenses).toHaveAccessibleDescription(
+    "© 2026 kuix design s.r.o. and contributors. Free to use under the MIT or Apache 2.0 license, as is, without warranty.",
+  );
+  await licenses.click();
+  expect(await invoked(page, "open_licenses")).toHaveLength(1);
+});
+
 test("dark mode stays readable", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await open(page);
