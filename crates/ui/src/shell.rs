@@ -18,7 +18,7 @@ use crate::format::{
 use crate::icons;
 use crate::rows::Row;
 use crate::settings::Settings;
-use crate::store::{Screen, Store, Toward};
+use crate::store::{HOLD_TO_DELETE, Screen, Store, Toward};
 
 #[component]
 pub fn Shell() -> impl IntoView {
@@ -526,6 +526,14 @@ fn RowLine(
         let dom_id = dom_id.clone();
         Memo::new(move |_| store.selected_row.get().as_ref() == Some(&dom_id))
     };
+    let holding = {
+        let dom_id = dom_id.clone();
+        Memo::new(move |_| store.is_holding(&dom_id))
+    };
+    let hinting = {
+        let dom_id = dom_id.clone();
+        Memo::new(move |_| store.hold_hint.with(|hint| hint.as_ref() == Some(&dom_id)))
+    };
     let confirming = {
         let dom_id = dom_id.clone();
         Memo::new(move |_| {
@@ -597,7 +605,14 @@ fn RowLine(
     };
 
     view! {
-        <div class="entry-row" class:running=running class:pending=pending>
+        <div
+            class="entry-row"
+            class:running=running
+            class:pending=pending
+            class:holding=holding
+            style=format!("--hold: {}ms", HOLD_TO_DELETE.as_millis())
+        >
+            <span class="hold-progress" aria-hidden="true"></span>
             <button
                 type="button"
                 class="entry-main"
@@ -664,6 +679,11 @@ fn RowLine(
                 </Show>
             </div>
         </div>
+        <Show when=move || holding.get() || hinting.get()>
+            <p class="hold-hint" aria-hidden="true">
+                {move || if holding.get() { "Keep holding ⌫ to delete…" } else { "Hold ⌫ to delete" }}
+            </p>
+        </Show>
         <Show when=move || confirming.get()>
             <div class="confirm-delete" role="group" aria-label=question.clone()>
                 <span>{question.clone()}</span>

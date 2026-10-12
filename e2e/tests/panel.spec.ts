@@ -208,9 +208,30 @@ test("⌘= and ⌘− change the selected entry by an hour", async ({ page }) =>
   ]);
 });
 
-test("Backspace asks before deleting and Enter confirms", async ({ page }) => {
+test("⌫ held for 2 seconds deletes the row; let go early, it stays", async ({ page }) => {
   await open(page);
-  await page.keyboard.press("Backspace");
+  const row = page.locator(".entry-row").first();
+
+  await page.keyboard.down("Backspace");
+  await expect(row).toHaveClass(/holding/);
+  await expect(page.locator(".hold-hint")).toHaveText("Keep holding ⌫ to delete…");
+  await page.waitForTimeout(800);
+  await page.keyboard.up("Backspace");
+  await expect(row).not.toHaveClass(/holding/);
+  await expect(page.locator(".hold-hint")).toHaveText("Hold ⌫ to delete");
+  await expect(politeRegion(page)).toHaveText("Hold ⌫ to delete");
+  await expectAccessible(page);
+  expect(await invoked(page, "delete_entries")).toHaveLength(0);
+
+  await page.keyboard.down("Backspace");
+  await expect.poll(() => invoked(page, "delete_entries"), { timeout: 4000 }).toEqual([{ ids: ["e1"] }]);
+  await page.keyboard.up("Backspace");
+  await expect(page.locator(".entry-main")).toHaveCount(1);
+});
+
+test("the row's hidden Delete button, for assistive technology, asks first", async ({ page }) => {
+  await open(page);
+  await page.getByRole("button", { name: "Delete entry" }).first().dispatchEvent("click");
   const confirm = page.getByRole("button", { name: "Delete ↩" });
   await expect(confirm).toBeFocused();
   await expectAccessible(page);

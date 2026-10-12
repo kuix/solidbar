@@ -12,7 +12,7 @@ use web_sys::KeyboardEvent;
 use crate::icons;
 use crate::ipc::call;
 use crate::keymap::{Keys, focus_element};
-use crate::store::Store;
+use crate::store::{FORM_DELETE, HOLD_TO_DELETE, Store};
 use crate::time_field::TimeField;
 
 /// The selected project and task, or a break.
@@ -205,16 +205,11 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         focus_element("work-button");
     });
 
-    // The row the form was opened from, where "Delete?" is asked.
-    let delete_ids = if in_group {
+    let delete_ids: Vec<String> = if in_group {
         group_ids.clone()
     } else {
         init.entry_id.clone().into_iter().collect()
     };
-    let delete_row = store
-        .selected_row
-        .get_untracked()
-        .or_else(|| delete_ids.first().map(|id| format!("entry-{id}")));
     let group_note = in_group.then(|| {
         format!(
             "Changes apply to all {} entries ({} in total); their times stay as they are.",
@@ -344,27 +339,11 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                             <kbd aria-hidden="true">"⌘↩"</kbd>
                         </button>
                     </Show>
-                    {delete_row
-                        .clone()
-                        .filter(|_| !delete_ids.is_empty())
-                        .map(|row| {
-                            view! {
-                                <button
-                                    type="button"
-                                    class="danger"
-                                    on:click=move |_| {
-                                        store.close_form();
-                                        store.ask_delete(row.clone(), delete_ids.clone());
-                                    }
-                                >
-                                    "Delete"
-                                </button>
-                            }
-                        })}
                     <button type="button" aria-keyshortcuts="Escape" on:click=move |_| store.close_form()>
                         "Cancel"
                         <kbd aria-hidden="true">"⎋"</kbd>
                     </button>
+                    {(!delete_ids.is_empty()).then(|| view! { <HoldToDelete ids=delete_ids.clone() /> })}
                 </div>
             </div>
         </form>
@@ -730,4 +709,134 @@ fn option_marker(option: &WorkOption) -> AnyView {
         .unwrap_or_else(|| "var(--no-project)".to_owned());
     view! { <span class="dot" style=format!("background:{color}") aria-hidden="true"></span> }
         .into_any()
+}
+
+/// Deletes once held down, with the pointer or with Space or ↩, for [`HOLD_TO_DELETE`]: a stray
+/// click can't delete, and nothing has to be confirmed. Assistive technology activates buttons
+/// with a click it can't hold, so a click that no press started asks "Delete?" instead.
+#[component]
+fn HoldToDelete(ids: Vec<String>) -> impl IntoView {
+    let store = expect_context::<Store>();
+    let count = ids.len();
+    let holding = Memo::new(move |_| store.is_holding(FORM_DELETE));
+    let hinting = Memo::new(move |_| {
+        store
+            .hold_hint
+            .with(|hint| hint.as_deref() == Some(FORM_DELETE))
+    });
+    let confirming = RwSignal::new(false);
+    // Set by a press, so the click that ends it isn't taken for an assistive technology's.
+    let pressed = StoredValue::new(false);
+
+    let start = {
+        let ids = ids.clone();
+        move || {
+            pressed.set_value(true);
+            store.hold_delete(FORM_DELETE.to_owned(), ids.clone());
+        }
+    };
+    let release = move || {
+        store.release_delete();
+        // The click that follows a press arrives before this runs.
+        set_timeout(move || pressed.set_value(false), std::time::Duration::ZERO);
+    };
+    let activates =
+        |event: &KeyboardEvent| matches!(event.code().as_str(), "Space" | "Enter" | "NumpadEnter");
+    let on_pointerdown = {
+        let start = start.clone();
+        move |event: leptos::ev::PointerEvent| {
+            if event.button() == 0 {
+                start();
+            }
+        }
+    };
+    let on_keydown = move |event: KeyboardEvent| {
+        if activates(&event) {
+            event.prevent_default();
+            if !event.repeat() {
+                start();
+            }
+        }
+    };
+    let on_keyup = move |event: KeyboardEvent| {
+        if activates(&event) {
+            event.prevent_default();
+            release();
+        }
+    };
+    let on_click = move |_| {
+        if !pressed.get_value() {
+            confirming.set(true);
+            request_animation_frame(|| {
+                focus_element("confirm-form-delete");
+            });
+        }
+    };
+    let delete = {
+        let ids = ids.clone();
+        move |_| store.delete_now(ids.clone())
+    };
+    let keep = move |_| {
+        confirming.set(false);
+        request_animation_frame(|| {
+            focus_element("form-delete");
+        });
+    };
+    let (help, question) = match count {
+        1 => (
+            "Hold for 2 seconds, or hold Space, to delete this entry".to_owned(),
+            "Delete this entry?".to_owned(),
+        ),
+        count => (
+            format!("Hold for 2 seconds, or hold Space, to delete these {count} entries"),
+            format!("Delete these {count} entries?"),
+        ),
+    };
+
+    view! {
+        <div class="delete-area">
+        <Show when=move || holding.get() || hinting.get()>
+            <span class="hold-hint" aria-hidden="true">
+                {move || if holding.get() { "Keep holding…" } else { "Hold to delete" }}
+            </span>
+        </Show>
+        <Show
+            when=move || !confirming.get()
+            fallback=move || {
+                view! {
+                    <div class="confirm-delete form-confirm" role="group" aria-label=question.clone()>
+                        <span>{question.clone()}</span>
+                        <button type="button" class="danger" id="confirm-form-delete" on:click=delete.clone()>
+                            "Delete"
+                        </button>
+                        <button type="button" on:click=keep>"Keep"</button>
+                    </div>
+                }
+            }
+        >
+            <button
+                type="button"
+                id="form-delete"
+                class="danger hold-button"
+                class:holding=holding
+                style=format!("--hold: {}ms", HOLD_TO_DELETE.as_millis())
+                aria-describedby="form-delete-help"
+                on:pointerdown=on_pointerdown.clone()
+                on:pointerup=move |_| release()
+                on:pointerleave=move |_| release()
+                on:pointercancel=move |_| release()
+                on:keydown=on_keydown.clone()
+                on:keyup=on_keyup
+                on:blur=move |_| store.cancel_hold()
+                on:click=on_click
+            >
+                <span class="hold-label">"Delete"</span>
+                <span class="hold-fill" aria-hidden="true">
+                    <span class="hold-label">"Delete"</span>
+                </span>
+            </button>
+        </Show>
+        <span id="form-delete-help" class="sr-only">{help}</span>
+        </div>
+    }
 }

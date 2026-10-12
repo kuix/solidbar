@@ -20,6 +20,8 @@ pub struct Keys {
     pub control: bool,
     pub shift: bool,
     pub code: String,
+    /// Sent again while the key is held down.
+    pub repeat: bool,
 }
 
 impl Keys {
@@ -30,6 +32,7 @@ impl Keys {
             control: event.ctrl_key(),
             shift: event.shift_key(),
             code: event.code(),
+            repeat: event.repeat(),
         }
     }
 
@@ -199,6 +202,13 @@ pub fn install(store: Store) {
             event.prevent_default();
         }
     });
+    // ⌫ deletes a row once held down; letting go early keeps it.
+    let _ = window_event_listener(leptos::ev::keyup, move |event| {
+        if matches!(event.code().as_str(), "Backspace" | "Delete") {
+            store.release_delete();
+        }
+    });
+    let _ = window_event_listener(leptos::ev::blur, move |_| store.cancel_hold());
 }
 
 fn list_keys(store: Store, keys: &Keys) -> bool {
@@ -267,7 +277,9 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
         } else if (keys.is("Meta+Equal") || keys.is("Meta+Minus")) && editable {
             store.adjust(&row, if keys.is("Meta+Equal") { 60 } else { -60 });
         } else if (keys.is("Backspace") || keys.is("Delete")) && editable {
-            store.ask_delete(row.dom_id(), row.ids());
+            if !keys.repeat {
+                store.hold_delete(row.dom_id(), row.ids());
+            }
         } else {
             return false;
         }
@@ -315,6 +327,7 @@ mod tests {
             control: false,
             shift: false,
             code: code.to_owned(),
+            repeat: false,
         }
     }
 

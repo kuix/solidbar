@@ -42,7 +42,21 @@ pub enum Toward {
     Entries,
 }
 
-/// A row waiting for "Delete? ⏎ / ⎋".
+/// How long a delete is held down before the entries go.
+pub const HOLD_TO_DELETE: Duration = Duration::from_millis(2000);
+/// The hold target of the entry form's Delete button.
+pub const FORM_DELETE: &str = "form-delete";
+
+/// A delete being held down (⌫ on a row, or the form's Delete button).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldDelete {
+    /// The row's element id, or [`FORM_DELETE`].
+    pub target: String,
+    pub ids: Vec<String>,
+}
+
+/// A row waiting for "Delete? ⏎ / ⎋": the fallback for assistive technology, which activates
+/// buttons with a single click and can't hold them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingDelete {
     /// The row's element id, where the question shows.
@@ -61,6 +75,10 @@ pub struct Store {
     /// Groups (by id) opened to show their entries.
     pub expanded: RwSignal<HashSet<String>>,
     pub confirm_delete: RwSignal<Option<PendingDelete>>,
+    pub holding: RwSignal<Option<HeldDelete>>,
+    /// Where "Hold to delete" shows after a delete was let go too early.
+    pub hold_hint: RwSignal<Option<String>>,
+    hold_timer: StoredValue<Option<TimeoutHandle>>,
     pub pinned: RwSignal<bool>,
     pub focus: RwSignal<Option<Focus>>,
     /// Polite live region text (confirmations).
@@ -81,6 +99,9 @@ impl Store {
             selected_row: RwSignal::new(None),
             expanded: RwSignal::new(HashSet::new()),
             confirm_delete: RwSignal::new(None),
+            holding: RwSignal::new(None),
+            hold_hint: RwSignal::new(None),
+            hold_timer: StoredValue::new(None),
             pinned: RwSignal::new(false),
             focus: RwSignal::new(None),
             status: RwSignal::new(String::new()),
@@ -376,6 +397,81 @@ impl Store {
         });
     }
 
+    /// Starts holding a delete; the entries go once it's held for [`HOLD_TO_DELETE`].
+    pub fn hold_delete(self, target: String, ids: Vec<String>) {
+        if self.holding.get_untracked().is_some() || ids.is_empty() {
+            return;
+        }
+        self.hold_hint.set(None);
+        self.holding.set(Some(HeldDelete { target, ids }));
+        let timer = set_timeout_with_handle(move || self.finish_hold(), HOLD_TO_DELETE);
+        self.hold_timer.set_value(timer.ok());
+    }
+
+    /// Lets go of a held delete. Too early, it stays and says how to delete.
+    pub fn release_delete(self) {
+        let Some(held) = self.stop_hold() else {
+            return;
+        };
+        let hint = if held.target == FORM_DELETE {
+            "Hold to delete"
+        } else {
+            "Hold ⌫ to delete"
+        };
+        announce(self.status, hint.to_owned());
+        self.hold_hint.set(Some(held.target.clone()));
+        let hold_hint = self.hold_hint;
+        set_timeout(
+            move || {
+                if hold_hint.get_untracked().as_ref() == Some(&held.target) {
+                    hold_hint.set(None);
+                }
+            },
+            Duration::from_secs(3),
+        );
+    }
+
+    /// Drops a held delete without a word, e.g. when the panel loses focus.
+    pub fn cancel_hold(self) {
+        self.stop_hold();
+    }
+
+    pub fn is_holding(&self, target: &str) -> bool {
+        self.holding
+            .with(|held| held.as_ref().is_some_and(|held| held.target == target))
+    }
+
+    fn stop_hold(self) -> Option<HeldDelete> {
+        if let Some(timer) = self.hold_timer.get_value() {
+            timer.clear();
+        }
+        self.hold_timer.set_value(None);
+        let held = self.holding.get_untracked();
+        if held.is_some() {
+            self.holding.set(None);
+        }
+        held
+    }
+
+    fn finish_hold(self) {
+        self.hold_timer.set_value(None);
+        if let Some(held) = self.holding.get_untracked() {
+            self.holding.set(None);
+            self.delete_now(held.ids);
+        }
+    }
+
+    /// Deletes right away, back in the list.
+    pub fn delete_now(self, ids: Vec<String>) {
+        if self.screen.get_untracked() == Screen::Form {
+            self.close_form();
+        }
+        self.confirm_delete.set(None);
+        self.selected_row.set(None);
+        self.focus.set(Some(Focus::Entry { date: None }));
+        self.run::<DeleteEntries>(EntriesArgs { ids });
+    }
+
     pub fn ask_delete(self, row: String, ids: Vec<String>) {
         self.focus
             .set(Some(Focus::Element(format!("confirm-delete-{row}"))));
@@ -384,10 +480,7 @@ impl Store {
 
     pub fn confirm_delete(self) {
         if let Some(pending) = self.confirm_delete.get_untracked() {
-            self.confirm_delete.set(None);
-            self.selected_row.set(None);
-            self.focus.set(Some(Focus::Entry { date: None }));
-            self.run::<DeleteEntries>(EntriesArgs { ids: pending.ids });
+            self.delete_now(pending.ids);
         }
     }
 
@@ -400,6 +493,7 @@ impl Store {
 
     pub fn panel_shown(self, reason: ShowReason) {
         self.confirm_delete.set(None);
+        self.cancel_hold();
         if self.with_app(|app| app.choose_org).unwrap_or(false) {
             // Nothing to show or add to before an organization is chosen.
             request_animation_frame(|| {

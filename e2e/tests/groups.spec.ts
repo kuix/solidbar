@@ -81,13 +81,11 @@ test("a group opens in the form with what its entries share", async ({ page }) =
   });
 });
 
-test("deleting a group asks once for all of its entries", async ({ page }) => {
+test("holding ⌫ on a group deletes all of its entries", async ({ page }) => {
   await open(page);
-  await page.keyboard.press("Backspace");
-  await expect(page.getByRole("group", { name: "Delete these 2 entries?" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Delete ↩" })).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect.poll(() => invoked(page, "delete_entries")).toEqual([{ ids: ["e1", "e3"] }]);
+  await page.keyboard.down("Backspace");
+  await expect.poll(() => invoked(page, "delete_entries"), { timeout: 4000 }).toEqual([{ ids: ["e1", "e3"] }]);
+  await page.keyboard.up("Backspace");
   await expect(page.locator(".entries > .entry")).toHaveCount(1);
 });
 

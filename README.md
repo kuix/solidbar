@@ -89,7 +89,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `S` | Continue/stop; during a break, back to work |
 | | `B` | Take a break / end it (if the organization tracks breaks) |
 | | `⌘=` `⌘−` | Add/remove an hour |
-| | `⌫` | Delete (asks first) |
+| | hold `⌫` | Delete (hold for 2 seconds; letting go earlier keeps the entry) |
 | | `N` or `⌘N` | New entry |
 | | `R` or `⌘R` | Refresh |
 | | `⌘,` | Settings |
@@ -100,6 +100,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `Space` or type | Open the project list (typing searches) |
 | | `↑` `↓` in a time | 15 minutes earlier/later (`⇧` for an hour) |
 | | `↩` / `⌘↩` | Save / save and start a timer |
+| | hold **Delete** | Delete: hold the button, or `Space` on it, for 2 seconds |
 
 The global shortcuts can be changed in Settings.
 
