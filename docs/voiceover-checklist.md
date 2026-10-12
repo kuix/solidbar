@@ -18,6 +18,7 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] Entries read as one sentence: project › task, client, notes, duration, start and end, billable.
 - [ ] `↑`/`↓` move between entries; VO reads each one.
 - [ ] VO announces the keyboard shortcuts of an entry (aria-keyshortcuts) with the hint delay.
+- [ ] With Settings › Single-key shortcuts off, N, T, S, B, E and R do nothing in the list, and VO no longer announces them (⌘N, ↩ and the arrows still work).
 - [ ] `⌘=` announces "Added 1 hour" (and how many later entries moved); the duration updates.
 - [ ] `⌫` moves focus to "Delete ↩"; `⎋` returns to the entry; `↩` deletes and announces "Time entry deleted".
 - [ ] `S` announces "Timer started"; the row reads "timer running".

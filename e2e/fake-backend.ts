@@ -119,6 +119,12 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
         state.app.choose_org = false;
         changed();
       },
+      update_settings: (patch) => {
+        for (const [key, value] of Object.entries(patch)) {
+          if (value !== null) state.app.settings[key] = value;
+        }
+        changed();
+      },
       get_autostart: () => false,
       update_get: () => structuredClone(update),
       update_check: () => {

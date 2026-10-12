@@ -105,8 +105,8 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
             <button
                 type="button"
                 class="today-button"
-                aria-keyshortcuts="T"
-                title="Go to today (T)"
+                aria-keyshortcuts=move || store.single_keys().then_some("T")
+                title=move || store.titled("Go to today", "T")
                 on:click=move |_| store.go_to_today(Toward::Entries)
             >
                 "Today"
@@ -216,8 +216,8 @@ fn Banners() -> impl IntoView {
                                     view! {
                                         <button
                                             type="button"
-                                            aria-keyshortcuts="S"
-                                            title="Back to work (S)"
+                                            aria-keyshortcuts=move || store.single_keys().then_some("S")
+                                            title=move || store.titled("Back to work", "S")
                                             on:click=move |_| store.resume()
                                         >
                                             {icons::play()}
@@ -382,7 +382,7 @@ fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
                                     <button type="button" class="link" on:click=move |_| store.open_new_form()>
                                         "Add time"
                                     </button>
-                                    " (⌘N)"
+                                    {move || if store.single_keys() { " (N)" } else { " (⌘N)" }}
                                 </p>
                             }
                         }
@@ -570,19 +570,27 @@ fn RowLine(
         move |_| store.ask_delete(dom_id.clone(), ids.clone())
     };
     let take_break = move |_| store.run::<StartBreak>(());
-    let (timer_label, timer_title) = match (is_break, running) {
-        (false, true) => ("Stop timer", "Stop timer (S)"),
-        (false, false) => ("Continue: start a timer like this entry", "Continue (S)"),
-        (true, true) => ("End break", "End break (B)"),
-        (true, false) => ("Take a break", "Take a break (B)"),
+    let (timer_label, timer_title, timer_key) = match (is_break, running) {
+        (false, true) => ("Stop timer", "Stop timer", "S"),
+        (false, false) => ("Continue: start a timer like this entry", "Continue", "S"),
+        (true, true) => ("End break", "End break", "B"),
+        (true, false) => ("Take a break", "Take a break", "B"),
     };
-    let mut keyshortcuts = "Enter S Meta+Equal Meta+Minus Backspace".to_owned();
-    if opens {
-        keyshortcuts.push_str(" ArrowRight ArrowLeft");
-    }
-    if breaks_enabled.get_untracked() {
-        keyshortcuts.push_str(" B");
-    }
+    let keyshortcuts = move || {
+        let single_keys = store.single_keys();
+        let mut keys = vec!["Enter"];
+        if single_keys {
+            keys.extend(["E", "S"]);
+        }
+        keys.extend(["Meta+Equal", "Meta+Minus", "Backspace"]);
+        if opens {
+            keys.extend(["ArrowRight", "ArrowLeft"]);
+        }
+        if single_keys && breaks_enabled.get() {
+            keys.push("B");
+        }
+        keys.join(" ")
+    };
     let question = match count {
         1 => "Delete this entry?".to_owned(),
         count => format!("Delete these {count} entries?"),
@@ -634,7 +642,7 @@ fn RowLine(
                         tabindex="-1"
                         class="icon-button break-button"
                         aria-label="Take a break"
-                        title="Take a break (B)"
+                        title=move || store.titled("Take a break", "B")
                         prop:disabled=move || !editable.get()
                         on:click=take_break
                     >
@@ -647,7 +655,7 @@ fn RowLine(
                         tabindex="-1"
                         class="icon-button timer-button"
                         aria-label=timer_label
-                        title=timer_title
+                        title=move || store.titled(timer_title, timer_key)
                         prop:disabled=move || !editable.get()
                         on:click=toggle.clone()
                     >
@@ -687,12 +695,12 @@ fn Footer(week: Memo<Option<WeekView>>) -> impl IntoView {
             <button
                 type="button"
                 class="primary new-entry"
-                aria-keyshortcuts="Meta+N"
+                aria-keyshortcuts=move || if store.single_keys() { "N Meta+N" } else { "Meta+N" }
                 on:click=move |_| store.open_new_form()
             >
                 {icons::plus()}
                 "New entry"
-                <kbd aria-hidden="true">"⌘N"</kbd>
+                <kbd aria-hidden="true">{move || if store.single_keys() { "N" } else { "⌘N" }}</kbd>
             </button>
             <span class="week-total" aria-label=move || format!("This week: {}", spoken_duration(total.get()))>
                 "Week " <strong>{move || format_hm(total.get())}</strong>

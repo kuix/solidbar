@@ -32,6 +32,9 @@ pub struct Settings {
     pub menu_bar_text: bool,
     /// Accelerators per global action; `None` disables the shortcut.
     pub shortcuts: BTreeMap<GlobalAction, Option<String>>,
+    /// N, T, S, B, E and R in the list. Can be turned off (WCAG 2.1.4), e.g. for Voice Control,
+    /// where a spoken word could set one off.
+    pub single_key_shortcuts: bool,
     pub launch_at_login_offered: bool,
 }
 
@@ -48,6 +51,7 @@ impl Default for Settings {
                 .into_iter()
                 .map(|action| (action, Some(action.default_accelerator().to_owned())))
                 .collect(),
+            single_key_shortcuts: true,
             launch_at_login_offered: false,
         }
     }
@@ -70,6 +74,7 @@ pub struct SettingsPatch {
     pub theme: Option<Theme>,
     pub clock: Option<ClockFormat>,
     pub menu_bar_text: Option<bool>,
+    pub single_key_shortcuts: Option<bool>,
     pub launch_at_login_offered: Option<bool>,
 }
 
@@ -82,6 +87,7 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{ "theme": "dark" }"#).unwrap();
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.workday_start, "09:00");
+        assert!(settings.single_key_shortcuts);
         assert_eq!(
             settings.shortcut(GlobalAction::TogglePanel),
             Some("Alt+Super+KeyT")

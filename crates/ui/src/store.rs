@@ -100,6 +100,21 @@ impl Store {
         self.with_app(|app| app.online).unwrap_or(false)
     }
 
+    /// Whether N, T, S, B, E and R work on their own in the list.
+    pub fn single_keys(&self) -> bool {
+        self.with_app(|app| app.settings.single_key_shortcuts)
+            .unwrap_or(true)
+    }
+
+    /// A button title with its single-key shortcut, e.g. `Stop timer (S)`, while those are on.
+    pub fn titled(&self, title: &str, key: &str) -> String {
+        if self.single_keys() {
+            format!("{title} ({key})")
+        } else {
+            title.to_owned()
+        }
+    }
+
     pub fn breaks_enabled(&self) -> bool {
         self.app
             .with_untracked(|app| app.as_ref().is_some_and(|app| app.breaks_enabled))

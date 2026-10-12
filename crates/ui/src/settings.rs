@@ -224,7 +224,25 @@ pub fn Settings() -> impl IntoView {
             </p>
 
             <h3>"Keyboard shortcuts"</h3>
-            <p class="help">"These work from any app."</p>
+            <label class="switch">
+                <input
+                    type="checkbox"
+                    role="switch"
+                    aria-describedby="single-keys-help"
+                    prop:checked=move || settings.get().single_key_shortcuts
+                    on:change=move |event| {
+                        update(SettingsPatch {
+                            single_key_shortcuts: Some(event_target_checked(&event)),
+                            ..SettingsPatch::default()
+                        })
+                    }
+                />
+                "Single-key shortcuts"
+            </label>
+            <p id="single-keys-help" class="help">
+                "N, T, S, B, E and R in the list. Turn them off if they get in the way, e.g. with Voice Control; ⌘N, ⌘R, ↩ and the arrow keys keep working."
+            </p>
+            <p class="help">"These work from any app:"</p>
             {GlobalAction::ALL
                 .into_iter()
                 .map(|action| view! { <ShortcutRecorder action /> })

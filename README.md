@@ -13,13 +13,13 @@ Solidbar puts [solidtime](https://www.solidtime.io), the open-source time tracke
 The official [solidtime desktop app](https://github.com/solidtime-io/solidtime-desktop) is an Electron window: a lot of app for something you open dozens of times a day, with no global hotkey and few shortcuts. [@matkovsky](https://github.com/matkovsky) missed the keyboard shortcuts the most, so Solidbar does everything from the keyboard. It's a small panel under the menu bar, written in Rust and modelled on Harvest's Mac app.
 
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
-- **Fast entry.** `⌘N`, pick a recent project with `⌘1`–`⌘5` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. New entries continue where the day's last entry ended.
+- **Fast entry.** `N`, pick a recent project with `⌘1`–`⌘5` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. New entries continue where the day's last entry ended.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
 - **Simple timer.** `S` continues the selected entry (or stops the running one). Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
-- **Keyboard and VoiceOver first.** Every action has a shortcut; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
+- **Keyboard and VoiceOver first.** Every action has a shortcut, most of them a single key like in Harvest; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
 
 Solidbar is not an official solidtime product.
 
@@ -74,6 +74,8 @@ The instance's own OAuth keys (`PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY`, fr
 
 ## Keyboard shortcuts
 
+In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` work too, out of macOS habit). Where you type, in the entry form, shortcuts need a modifier. The shortcuts that work from any app use `⌥⌘`. **Settings › Single-key shortcuts** turns the letter keys off, e.g. if you use Voice Control.
+
 | Where | Keys | Action |
 |---|---|---|
 | Anywhere | `⌥⌘T` | Show or hide Solidbar |
@@ -88,7 +90,9 @@ The instance's own OAuth keys (`PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY`, fr
 | | `B` | Take a break / end it (if the organization tracks breaks) |
 | | `⌘=` `⌘−` | Add/remove an hour |
 | | `⌫` | Delete (asks first) |
-| | `⌘N` `⌘R` `⌘,` | New entry, refresh, settings |
+| | `N` or `⌘N` | New entry |
+| | `R` or `⌘R` | Refresh |
+| | `⌘,` | Settings |
 | | `⌘O` | Change the organization (in Settings) |
 | | `⎋` | Close |
 | Entry form | `⌘1`–`⌘5` | Recent project |

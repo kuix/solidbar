@@ -1,5 +1,9 @@
 //! Keyboard handling. Shortcuts match `KeyboardEvent.code` (the physical key), so they work
 //! the same on every keyboard layout, e.g. ⌥1 on a Hungarian layout.
+//!
+//! The rule: in the list, where nothing is typed, a single key is enough (N, T, S, B, E, R, and
+//! ⌘N/⌘R too, out of macOS habit); where you type, shortcuts need a modifier; the shortcuts that
+//! work from any app need ⌥⌘. Single keys can be turned off in Settings.
 
 use leptos::prelude::*;
 use solidbar_shared::ipc::{PanelHide, Refresh, RefreshArgs};
@@ -198,6 +202,8 @@ pub fn install(store: Store) {
 }
 
 fn list_keys(store: Store, keys: &Keys) -> bool {
+    let single_keys = store.single_keys();
+    let single = |code: &str| single_keys && keys.is(code);
     if store.confirm_delete.get_untracked().is_some() {
         if keys.is("Enter") {
             store.confirm_delete();
@@ -225,6 +231,10 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
         store.run::<PanelHide>(());
     } else if typing() {
         return false;
+    } else if single("KeyN") {
+        store.open_new_form();
+    } else if single("KeyR") {
+        store.run::<Refresh>(RefreshArgs { force: true });
     } else if keys.is("ArrowLeft") || keys.is("ArrowRight") {
         let right = keys.is("ArrowRight");
         let in_week_strip = focus_in_week_strip();
@@ -242,17 +252,17 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
             if keys.is("Alt+ArrowLeft") { -7 } else { 7 },
             Toward::Entries,
         );
-    } else if keys.is("KeyT") {
+    } else if single("KeyT") {
         store.go_to_today(Toward::Entries);
     } else if keys.is("ArrowUp") || keys.is("ArrowDown") {
         move_selection(store, if keys.is("ArrowUp") { -1 } else { 1 });
-    } else if keys.is("KeyS") {
+    } else if single("KeyS") {
         return store.online() && store.timer_key();
-    } else if keys.is("KeyB") {
+    } else if single("KeyB") {
         return store.online() && store.break_key();
     } else if let Some(row) = store.selected() {
         let editable = store.online() && !row.pending();
-        if keys.is("Enter") || keys.is("KeyE") {
+        if keys.is("Enter") || single("KeyE") {
             store.edit(&row);
         } else if (keys.is("Meta+Equal") || keys.is("Meta+Minus")) && editable {
             store.adjust(&row, if keys.is("Meta+Equal") { 60 } else { -60 });

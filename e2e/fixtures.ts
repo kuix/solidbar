@@ -48,6 +48,7 @@ const settings = {
     new_entry: "Alt+Super+KeyN",
     toggle_timer: "Alt+Super+KeyS",
   },
+  single_key_shortcuts: true,
   launch_at_login_offered: true,
 };
 

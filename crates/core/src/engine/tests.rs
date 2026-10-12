@@ -7,7 +7,7 @@ use jiff::tz::TimeZone;
 use serde_json::{Value, json};
 use solidbar_shared::instance::{DEEP_LINK_REDIRECT, InstanceSettings, Redirect};
 use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FormArgs, TimerSource};
-use solidbar_shared::settings::Settings;
+use solidbar_shared::settings::{Settings, SettingsPatch};
 use solidbar_shared::view::{AppView, AuthView, Catalog, EntryKind, Notice};
 use wiremock::matchers::{body_json, method, path, query_param, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1093,4 +1093,26 @@ async fn a_client_solidtime_refuses_is_reported_without_opening_the_browser() {
         harness.sink.last().auth,
         AuthView::SignedOut { error: Some(_), .. }
     ));
+}
+
+#[tokio::test]
+async fn single_key_shortcuts_can_be_turned_off_and_stay_off() {
+    let server = MockServer::start().await;
+    let harness = harness(&server, false, |_| {});
+    assert!(harness.engine.settings().single_key_shortcuts);
+
+    harness
+        .engine
+        .update_settings(&SettingsPatch {
+            single_key_shortcuts: Some(false),
+            ..SettingsPatch::default()
+        })
+        .unwrap();
+
+    assert!(!harness.sink.last().settings.single_key_shortcuts);
+    let saved: Settings = serde_json::from_slice(
+        &std::fs::read(harness.directory.path().join("settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(!saved.single_key_shortcuts);
 }

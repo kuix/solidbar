@@ -1205,6 +1205,9 @@ impl Engine {
             if let Some(menu_bar_text) = patch.menu_bar_text {
                 state.settings.menu_bar_text = menu_bar_text;
             }
+            if let Some(single_keys) = patch.single_key_shortcuts {
+                state.settings.single_key_shortcuts = single_keys;
+            }
             if let Some(offered) = patch.launch_at_login_offered {
                 state.settings.launch_at_login_offered = offered;
             }
