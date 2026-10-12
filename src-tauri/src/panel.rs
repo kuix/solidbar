@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 use solidbar_core::engine::Engine;
 use solidbar_shared::ipc::{Event, PanelHidden, PanelShown, ShowReason};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Rect};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_nspanel::{
     CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt, tauri_panel,
 };
@@ -39,6 +39,19 @@ tauri_panel! {
     panel_event!(SolidbarPanelEvents {
         window_did_resign_key(notification: &NSNotification) -> ()
     })
+}
+
+// `tauri_panel!` above brings `NSPanel`, `NSPoint`, `NSRect` and `NSSize` into scope.
+
+/// Where the panel opens, in AppKit screen coordinates: points, from the bottom left of the
+/// main screen, y growing upwards. Points rather than pixels, because screens side by side can
+/// have different scale factors.
+#[derive(Clone, Copy, Debug)]
+pub struct Anchor {
+    /// The menu bar icon.
+    pub icon: NSRect,
+    /// The screen whose menu bar holds the icon.
+    pub screen: NSRect,
 }
 
 #[derive(Default)]
@@ -88,8 +101,8 @@ pub fn is_visible(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Toggles the panel from a click on the menu bar icon whose bounds are `icon`.
-pub fn toggle_from_tray(app: &AppHandle, icon: Rect) {
+/// Toggles the panel from a click on the menu bar icon.
+pub fn toggle_from_tray(app: &AppHandle, anchor: Option<Anchor>) {
     if is_visible(app) {
         hide(app);
         return;
@@ -101,18 +114,18 @@ pub fn toggle_from_tray(app: &AppHandle, icon: Rect) {
         .unwrap()
         .is_some_and(|at| at.elapsed() < REOPEN_GUARD);
     if !just_hidden {
-        show(app, Some(icon), ShowReason::Toggle);
+        show(app, anchor, ShowReason::Toggle);
     }
 }
 
-/// Shows the panel under the menu bar icon (when its bounds are known) and makes it key.
-pub fn show(app: &AppHandle, icon: Option<Rect>, reason: ShowReason) {
+/// Shows the panel under the menu bar icon (when it's known where that is) and makes it key.
+pub fn show(app: &AppHandle, anchor: Option<Anchor>, reason: ShowReason) {
     let Ok(panel) = app.get_webview_panel(LABEL) else {
         return;
     };
     remember_frontmost_app(app);
-    if let Some(icon) = icon {
-        position_under(app, icon);
+    if let Some(anchor) = anchor {
+        position_under(panel.as_panel(), anchor);
     }
     panel.show_and_make_key();
     let _ = app.emit(PanelShown::NAME, reason);
@@ -141,45 +154,23 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
         .store(pinned, Ordering::Relaxed);
 }
 
-/// Centers the panel horizontally under the icon, clamped to the screen holding the icon.
-fn position_under(app: &AppHandle, icon: Rect) {
-    let Some(window) = app.get_webview_window(LABEL) else {
-        return;
-    };
-    // tray-icon reports the icon bounds already in physical pixels (scaled by the backing
-    // factor of the menu bar it sits in), so the scale passed here is never used.
-    let icon_position = icon.position.to_physical::<f64>(1.0);
-    let icon_size = icon.size.to_physical::<f64>(1.0);
-    let icon_center_x = icon_position.x + icon_size.width / 2.0;
+fn position_under(panel: &NSPanel, anchor: Anchor) {
+    let top_left = top_left_under(anchor, panel.frame().size.width);
+    panel.setFrameTopLeftPoint(top_left);
+}
 
-    let monitors = app.available_monitors().unwrap_or_default();
-    let monitor = monitors.into_iter().find(|monitor| {
-        let origin = monitor.position();
-        let size = monitor.size();
-        let left = f64::from(origin.x);
-        let right = left + f64::from(size.width);
-        let top = f64::from(origin.y);
-        let bottom = top + f64::from(size.height);
-        (left..right).contains(&icon_center_x) && (top..bottom).contains(&icon_position.y)
-    });
-    let Some(monitor) = monitor else {
-        return;
-    };
-    let scale = monitor.scale_factor();
-    let Ok(panel_size) = window.outer_size() else {
-        return;
-    };
-
-    let screen_left = f64::from(monitor.position().x);
-    let screen_right = screen_left + f64::from(monitor.size().width);
-    let margin = SCREEN_MARGIN * scale;
-    let width = f64::from(panel_size.width);
-    let x = (icon_center_x - width / 2.0)
-        .min(screen_right - width - margin)
-        .max(screen_left + margin);
-    let y = icon_position.y + icon_size.height + ANCHOR_GAP * scale;
-
-    let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+/// The top left corner of a panel `width` points wide: centered under the icon, and within
+/// the screen holding the icon.
+fn top_left_under(anchor: Anchor, width: f64) -> NSPoint {
+    let Anchor { icon, screen } = anchor;
+    let left = screen.origin.x + SCREEN_MARGIN;
+    let right = screen.origin.x + screen.size.width - width - SCREEN_MARGIN;
+    let x = (icon.origin.x + icon.size.width / 2.0 - width / 2.0)
+        .min(right)
+        .max(left);
+    // y grows upwards: the panel's top edge goes just below the icon's bottom edge.
+    let top = icon.origin.y - ANCHOR_GAP;
+    NSPoint::new(x.round(), top.round())
 }
 
 fn remember_frontmost_app(app: &AppHandle) {
@@ -204,5 +195,57 @@ fn restore_previous_app(state: &PanelState) {
     };
     if let Some(previous) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
         previous.activateWithOptions(NSApplicationActivationOptions::empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
+        NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
+    }
+
+    /// A 1512×982 point built-in screen; its menu bar is 24 points tall.
+    const MAIN: (f64, f64, f64, f64) = (0.0, 0.0, 1512.0, 982.0);
+
+    fn anchor(icon_x: f64, screen: (f64, f64, f64, f64)) -> Anchor {
+        let (x, y, width, height) = screen;
+        Anchor {
+            icon: rect(icon_x, y + height - 24.0, 30.0, 24.0),
+            screen: rect(x, y, width, height),
+        }
+    }
+
+    #[test]
+    fn opens_centered_under_the_icon() {
+        let top_left = top_left_under(anchor(1000.0, MAIN), 380.0);
+        assert_eq!((top_left.x, top_left.y), (825.0, 954.0));
+    }
+
+    #[test]
+    fn stays_on_the_screen_near_its_edges() {
+        let near_right = top_left_under(anchor(1470.0, MAIN), 380.0);
+        assert_eq!(near_right.x, 1512.0 - 380.0 - 8.0);
+        let near_left = top_left_under(anchor(10.0, MAIN), 380.0);
+        assert_eq!(near_left.x, 8.0);
+    }
+
+    #[test]
+    fn opens_on_the_screen_whose_menu_bar_was_clicked() {
+        // A 2560×1440 screen to the left of the main one, top-aligned, so its origin is negative.
+        let left_screen = (-2560.0, 982.0 - 1440.0, 2560.0, 1440.0);
+        let top_left = top_left_under(anchor(-1300.0, left_screen), 380.0);
+        assert_eq!((top_left.x, top_left.y), (-1475.0, 954.0));
+        let near_its_right_edge = top_left_under(anchor(-40.0, left_screen), 380.0);
+        assert_eq!(near_its_right_edge.x, -380.0 - 8.0);
+
+        // A screen above the main one.
+        let above = (200.0, 982.0, 1920.0, 1080.0);
+        let top_left = top_left_under(anchor(1000.0, above), 380.0);
+        assert_eq!(
+            (top_left.x, top_left.y),
+            (825.0, 982.0 + 1080.0 - 24.0 - 4.0)
+        );
     }
 }

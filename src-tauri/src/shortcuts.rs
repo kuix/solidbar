@@ -111,11 +111,11 @@ fn run(app: &AppHandle, action: GlobalAction) {
             if panel::is_visible(app) {
                 panel::hide(app);
             } else {
-                panel::show(app, tray::icon_rect(app), ShowReason::Toggle);
+                panel::show(app, tray::anchor(app), ShowReason::Toggle);
             }
         }
         GlobalAction::NewEntry => {
-            panel::show(app, tray::icon_rect(app), ShowReason::NewEntry);
+            panel::show(app, tray::anchor(app), ShowReason::NewEntry);
         }
         GlobalAction::ToggleTimer => {
             let engine = app.state::<Arc<Engine>>().inner().clone();

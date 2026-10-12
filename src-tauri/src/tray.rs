@@ -3,12 +3,12 @@
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSFont, NSFontWeightRegular};
 use solidbar_shared::view::TrayView;
+use tauri::AppHandle;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Rect};
 
-use crate::panel;
+use crate::panel::{self, Anchor};
 
 const TRAY_ID: &str = "solidbar";
 const QUIT_ID: &str = "quit";
@@ -33,13 +33,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
-                rect,
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             } = event
             {
-                panel::toggle_from_tray(tray.app_handle(), rect);
+                panel::toggle_from_tray(tray.app_handle(), anchor_of(tray));
             }
         })
         .build(app)?;
@@ -48,9 +47,25 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Bounds of the menu bar icon, used to anchor the panel when it opens from a shortcut.
-pub fn icon_rect(app: &AppHandle) -> Option<Rect> {
-    app.tray_by_id(TRAY_ID)?.rect().ok().flatten()
+/// Where the menu bar icon is: on the screen whose menu bar was clicked last, with several.
+///
+/// The click event's `rect` is in pixels, scaled for the icon's screen, which can't be told
+/// apart from another screen's pixels; AppKit's own frames are in points.
+pub fn anchor(app: &AppHandle) -> Option<Anchor> {
+    anchor_of(&app.tray_by_id(TRAY_ID)?)
+}
+
+fn anchor_of(tray: &TrayIcon) -> Option<Anchor> {
+    tray.with_inner_tray_icon(|inner| {
+        let mtm = MainThreadMarker::new()?;
+        let window = inner.ns_status_item()?.button(mtm)?.window()?;
+        Some(Anchor {
+            icon: window.frame(),
+            screen: window.screen()?.frame(),
+        })
+    })
+    .ok()
+    .flatten()
 }
 
 pub fn set_status(app: &AppHandle, status: &TrayView) -> tauri::Result<()> {
