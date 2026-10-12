@@ -1,3 +1,4 @@
+mod autostart;
 mod commands;
 mod locale;
 mod panel;
@@ -27,10 +28,6 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Edit commands (⌘C, ⌘V, ⌘Z…) need a menu even though it's never visible. The default
         // menu also has "Close Window" (⌘W), which would destroy the panel, so build our own.
@@ -77,6 +74,7 @@ fn main() {
             tray::init(handle)?;
             tray::set_status(handle, &engine.app_view().tray)?;
             shortcuts::register_all(handle);
+            autostart::setup(handle);
 
             let links = engine.clone();
             app.deep_link().on_open_url(move |event| {

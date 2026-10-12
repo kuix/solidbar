@@ -12,9 +12,9 @@ use solidbar_shared::ipc::{
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateView;
 use solidbar_shared::view::FormInit;
-use tauri::{AppHandle, State};
-use tauri_plugin_autostart::ManagerExt;
+use tauri::{AppHandle, Manager, State};
 
+use crate::autostart::Autostart;
 use crate::{panel, shortcuts, updates};
 
 type EngineState<'a> = State<'a, Arc<Engine>>;
@@ -118,13 +118,11 @@ pub fn shortcuts_resume(app: AppHandle) {
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, engine: EngineState<'_>, args: AutostartArgs) -> Reply {
-    let launcher = app.autolaunch();
-    let result = if args.enabled {
-        launcher.enable()
-    } else {
-        launcher.disable()
-    };
-    result
+    let autostart = app
+        .try_state::<Autostart>()
+        .ok_or_else(|| CommandError::new("Launch at Login isn't available"))?;
+    autostart
+        .set_enabled(args.enabled)
         .map_err(|error| CommandError::new(format!("Couldn't change Launch at Login: {error}")))?;
     engine.update_settings(&SettingsPatch {
         launch_at_login_offered: Some(true),
@@ -134,7 +132,8 @@ pub fn set_autostart(app: AppHandle, engine: EngineState<'_>, args: AutostartArg
 
 #[tauri::command]
 pub fn get_autostart(app: AppHandle) -> bool {
-    app.autolaunch().is_enabled().unwrap_or(false)
+    app.try_state::<Autostart>()
+        .is_some_and(|autostart| autostart.is_enabled())
 }
 
 #[tauri::command]
