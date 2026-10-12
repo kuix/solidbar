@@ -2,6 +2,7 @@
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use solidbar_shared::clock::Time;
 use solidbar_shared::duration::parse_minutes;
 use solidbar_shared::fuzzy;
 use solidbar_shared::ipc::{EntryDraft, SaveEntry};
@@ -65,6 +66,18 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     let description = RwSignal::new(init.description.clone());
     let duration = RwSignal::new(init.duration.clone());
     let start_time = RwSignal::new(init.start_time.clone());
+    // Changed by the person, the start is where a timer starts (otherwise: now).
+    let start_changed = {
+        let initial = init.start_time.clone();
+        Memo::new(move |_| start_time.with(|time| !time.is_empty() && *time != initial))
+    };
+    let hour12 = Memo::new(move |_| store.with_app(|app| app.hour12).unwrap_or(false));
+    let timer_label = move || match Time::parse(&start_time.get()) {
+        Some(time) if start_changed.get() => {
+            format!("Start timer from {}", time.display(hour12.get()))
+        }
+        _ => "Start timer".to_owned(),
+    };
     let billable = RwSignal::new(init.billable);
     let error = RwSignal::new(None::<String>);
     let saving = RwSignal::new(false);
@@ -135,6 +148,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
             duration: duration_text,
             start_time: start_time.get_untracked(),
             start_timer,
+            start_changed: start_changed.get_untracked(),
         };
         saving.set(true);
         error.set(None);
@@ -335,7 +349,7 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                             prop:disabled=saving
                             on:click=move |_| submit.run(true)
                         >
-                            "Start timer"
+                            {timer_label}
                             <kbd aria-hidden="true">"⌘↩"</kbd>
                         </button>
                     </Show>

@@ -71,6 +71,32 @@ test("⌘N, a recent pair, ⌥2 and Enter add two hours", async ({ page }) => {
   await expect(politeRegion(page)).toHaveText("Added 2 hours");
 });
 
+test("Start timer starts from a start time changed in the form", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Meta+KeyN");
+  await expect(page.getByRole("button", { name: "Project and task" })).toBeFocused();
+  const startTimer = page.getByRole("button", { name: /^Start timer/ });
+  await expect(startTimer).toHaveAccessibleName("Start timer");
+
+  await page.getByLabel("Start", { exact: true }).fill("9:33");
+  await expect(startTimer).toHaveAccessibleName("Start timer from 09:33");
+  await page.keyboard.press("Meta+Enter");
+
+  await expect.poll(() => invoked(page, "save_entry")).toEqual([
+    expect.objectContaining({ start_time: "09:33", start_timer: true, start_changed: true }),
+  ]);
+});
+
+test("Start timer without a changed start starts now", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Meta+KeyN");
+  await expect(page.getByRole("button", { name: "Project and task" })).toBeFocused();
+  await page.keyboard.press("Meta+Enter");
+  await expect.poll(() => invoked(page, "save_entry")).toEqual([
+    expect.objectContaining({ start_timer: true, start_changed: false }),
+  ]);
+});
+
 test("typing on the project picker searches; Enter picks, then saves", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Meta+KeyN");

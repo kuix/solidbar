@@ -122,6 +122,9 @@ pub struct EntryDraft {
     pub start_time: String,
     /// Save as a running timer (⌘Enter).
     pub start_timer: bool,
+    /// The person changed the start, so a timer starts there rather than now.
+    #[serde(default)]
+    pub start_changed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

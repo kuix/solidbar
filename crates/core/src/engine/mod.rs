@@ -670,12 +670,37 @@ impl Engine {
         let start_time = parse_time(&draft.start_time)?;
         match &draft.id {
             None if draft.start_timer => {
-                let elapsed = match draft.duration.trim() {
-                    "" => None,
-                    typed => Some(parse_minutes(typed).map_err(user_error)?),
+                // A start the person set wins; otherwise a duration means "for that long now".
+                let start = if draft.start_changed {
+                    let start = calendar.at(date, start_time);
+                    if start > now {
+                        return Err(CommandError::new("A timer can't start in the future"));
+                    }
+                    start
+                } else {
+                    let elapsed = match draft.duration.trim() {
+                        "" => None,
+                        typed => Some(parse_minutes(typed).map_err(user_error)?),
+                    };
+                    stacking::timer_start(now, elapsed)
                 };
-                let start = stacking::timer_start(now, elapsed);
-                self.stop_running(&api, now).await?;
+                // Started in the past, it takes over from the running timer where it begins.
+                let running_since = self
+                    .state()
+                    .data
+                    .active_timer
+                    .as_ref()
+                    .map(|timer| timer.entry.start);
+                if let Some(since) = running_since
+                    && start < since
+                {
+                    let hour12 = self.state().settings.clock.hour12(self.deps.hour12);
+                    return Err(CommandError::new(format!(
+                        "A timer has been running since {}. Start the new one after that, or stop it first.",
+                        view::time_label(since, &calendar, hour12)
+                    )));
+                }
+                self.stop_running(&api, start).await?;
                 let timer = new_entry(&draft, start, None);
                 self.create(&api, &membership, timer).await?;
                 self.notice(NoticeKind::Info, started_message(draft.kind));

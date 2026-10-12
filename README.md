@@ -99,7 +99,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `⌥1`–`⌥8` | Whole hours |
 | | `Space` or type | Open the project list (typing searches) |
 | | `↑` `↓` in a time | 15 minutes earlier/later (`⇧` for an hour) |
-| | `↩` / `⌘↩` | Save / save and start a timer |
+| | `↩` / `⌘↩` | Save / start a timer (from the Start time, if you changed it; a running timer stops there) |
 | | hold **Delete** | Delete: hold the button, or `Space` on it, for 2 seconds |
 
 The global shortcuts can be changed in Settings.

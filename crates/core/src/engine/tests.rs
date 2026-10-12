@@ -9,7 +9,9 @@ use solidbar_shared::instance::{DEEP_LINK_REDIRECT, InstanceSettings, Redirect};
 use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FormArgs, TimerSource};
 use solidbar_shared::settings::{Settings, SettingsPatch};
 use solidbar_shared::view::{AppView, AuthView, Catalog, EntryKind, Notice};
-use wiremock::matchers::{body_json, method, path, query_param, query_param_contains};
+use wiremock::matchers::{
+    body_json, body_partial_json, method, path, query_param, query_param_contains,
+};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{Engine, EngineDeps};
@@ -224,6 +226,7 @@ fn draft(start_time: &str, duration: &str) -> EntryDraft {
         duration: duration.to_owned(),
         start_time: start_time.to_owned(),
         start_timer: false,
+        start_changed: false,
     }
 }
 
@@ -1115,4 +1118,110 @@ async fn single_key_shortcuts_can_be_turned_off_and_stay_off() {
     )
     .unwrap();
     assert!(!saved.single_key_shortcuts);
+}
+
+/// Mounts stopping the running timer `live` at `end`, and creating a timer from `start`.
+async fn mount_switch(server: &MockServer, live_start: &str, at: &str) {
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "/api/v1/organizations/{ORG}/time-entries/live"
+        )))
+        .and(body_json(json!({ "start": live_start, "end": at })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": entry("live", live_start, Some(at)),
+        })))
+        .expect(1)
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/api/v1/organizations/{ORG}/time-entries")))
+        .and(body_partial_json(json!({ "start": at, "end": null })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "data": entry("new", at, None),
+        })))
+        .expect(1)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn a_timer_from_the_form_starts_where_the_person_set_it_and_takes_over_there() {
+    let server = MockServer::start().await;
+    let live = entry("live", "2026-10-09T07:00:00Z", None);
+    let harness = signed_in_with_timer(&server, false, Some(live.clone()), vec![live]).await;
+    // 11:00 in Budapest; the running timer stops there instead of now (12:00), so they don't
+    // overlap.
+    mount_switch(&server, "2026-10-09T07:00:00Z", "2026-10-09T09:00:00Z").await;
+
+    harness
+        .engine
+        .save_entry(EntryDraft {
+            start_timer: true,
+            start_changed: true,
+            ..draft("11:00", "")
+        })
+        .await
+        .unwrap();
+
+    let timer = harness.sink.last().timer.unwrap();
+    assert_eq!(timer.entry_id, "new");
+    assert_eq!(harness.sink.notices().last().unwrap().text, "Timer started");
+}
+
+#[tokio::test]
+async fn a_timer_for_a_duration_starts_that_long_ago_and_takes_over_there() {
+    let server = MockServer::start().await;
+    let live = entry("live", "2026-10-09T07:00:00Z", None);
+    let harness = signed_in_with_timer(&server, false, Some(live.clone()), vec![live]).await;
+    mount_switch(&server, "2026-10-09T07:00:00Z", "2026-10-09T08:30:00Z").await;
+
+    // The start shown in the form wasn't touched, so the duration counts back from now.
+    harness
+        .engine
+        .save_entry(EntryDraft {
+            start_timer: true,
+            ..draft("09:00", "1:30")
+        })
+        .await
+        .unwrap();
+    assert_eq!(harness.sink.last().timer.unwrap().entry_id, "new");
+}
+
+#[tokio::test]
+async fn a_timer_from_the_form_cant_start_in_the_future_or_before_the_running_one() {
+    let server = MockServer::start().await;
+    let live = entry("live", "2026-10-09T07:00:00Z", None);
+    let harness = signed_in_with_timer(&server, false, Some(live.clone()), vec![live]).await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let start_at = |time: &str| EntryDraft {
+        start_timer: true,
+        start_changed: true,
+        ..draft(time, "")
+    };
+
+    let future = harness
+        .engine
+        .save_entry(start_at("13:00"))
+        .await
+        .unwrap_err();
+    assert_eq!(future.message, "A timer can't start in the future");
+
+    let earlier = harness
+        .engine
+        .save_entry(start_at("08:30"))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        earlier.message,
+        "A timer has been running since 09:00. Start the new one after that, or stop it first."
+    );
 }
