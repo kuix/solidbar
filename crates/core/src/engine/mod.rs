@@ -4,7 +4,8 @@
 //! reacts instantly), then sent to solidtime, then reconciled with the response or rolled
 //! back. Writes are serialized so they reach solidtime in the order they were made.
 
-mod files;
+pub mod agent;
+pub(crate) mod files;
 mod state;
 mod view;
 
@@ -21,8 +22,10 @@ use solidbar_shared::instance::{InstanceSettings, Redirect};
 use solidbar_shared::ipc::{
     AdjustArgs, BootstrapView, CommandError, EntryDraft, FormArgs, ShortcutArgs, TimerSource,
 };
-use solidbar_shared::settings::{Settings, SettingsPatch};
-use solidbar_shared::view::{AppView, Catalog, EntryKind, FormInit, Notice, NoticeKind};
+use solidbar_shared::settings::{AgentAccess, Settings, SettingsPatch};
+use solidbar_shared::view::{
+    AgentServerView, AppView, Catalog, EntryKind, FormInit, Notice, NoticeKind,
+};
 use tokio::sync::oneshot;
 use url::Url;
 
@@ -75,6 +78,7 @@ pub struct Engine {
     writes: tokio::sync::Mutex<()>,
     login: Mutex<LoginControl>,
     local_ids: AtomicU64,
+    agent_seen: Mutex<agent::SeenEntries>,
 }
 
 impl Engine {
@@ -111,6 +115,7 @@ impl Engine {
             online: true,
             loading: false,
             last_refresh: None,
+            agent_server: AgentServerView::Off,
         };
         state.selected_date = state.calendar().date_of(deps.clock.now());
         Arc::new(Self {
@@ -120,6 +125,7 @@ impl Engine {
             writes: tokio::sync::Mutex::new(()),
             login: Mutex::new(LoginControl::default()),
             local_ids: AtomicU64::new(1),
+            agent_seen: Mutex::default(),
         })
     }
 
@@ -1242,6 +1248,69 @@ impl Engine {
         Ok(())
     }
 
+    // --- AI agents ------------------------------------------------------------------------
+
+    pub fn agent_access(&self) -> AgentAccess {
+        self.state().settings.agents.clone()
+    }
+
+    /// Turns agents' access on or off. The first time, a free port and a key are picked.
+    pub fn set_agent_access(&self, enabled: bool) -> Result<(), CommandError> {
+        {
+            let mut state = self.state();
+            let agents = &mut state.settings.agents;
+            if enabled {
+                if agents.port.is_none() {
+                    agents.port = Some(free_port()?);
+                }
+                if agents.key.is_none() {
+                    agents.key = Some(new_agent_key());
+                }
+            }
+            agents.enabled = enabled;
+            self.files.save_settings(&state.settings);
+        }
+        self.emit_app();
+        Ok(())
+    }
+
+    /// A new key; agents with the old one are turned away from now on.
+    pub fn reset_agent_key(&self) {
+        {
+            let mut state = self.state();
+            state.settings.agents.key = Some(new_agent_key());
+            self.files.save_settings(&state.settings);
+        }
+        self.emit_app();
+        self.notice(
+            NoticeKind::Info,
+            "New key. Agents set up with the old one need the new one.",
+        );
+    }
+
+    /// Another free port, for when another app took the server's.
+    pub fn move_agent_server(&self) -> Result<(), CommandError> {
+        {
+            let mut state = self.state();
+            state.settings.agents.port = Some(free_port()?);
+            self.files.save_settings(&state.settings);
+        }
+        self.emit_app();
+        Ok(())
+    }
+
+    /// What Settings shows about the MCP server (the server reports it).
+    pub fn set_agent_server(&self, server: AgentServerView) {
+        {
+            let mut state = self.state();
+            if state.agent_server == server {
+                return;
+            }
+            state.agent_server = server;
+        }
+        self.emit_app();
+    }
+
     /// Records a shortcut the shell has already registered successfully.
     pub fn save_shortcut(&self, args: &ShortcutArgs) {
         {
@@ -1524,6 +1593,22 @@ fn parse_time(text: &str) -> Result<Time, CommandError> {
         .parse()
         .map_err(|_| CommandError::new("Enter the start time as HH:MM"))?;
     Time::new(hours, minutes, 0, 0).map_err(|_| CommandError::new("Enter the start time as HH:MM"))
+}
+
+/// A port nothing listens on right now, on the loopback interface.
+fn free_port() -> Result<u16, CommandError> {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .map_err(|error| CommandError::new(format!("No free port for the MCP server: {error}")))
+}
+
+/// 32 random bytes, base64url-encoded.
+fn new_agent_key() -> String {
+    use base64::Engine as _;
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("the operating system provides randomness");
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 fn user_error(error: impl std::fmt::Display) -> CommandError {

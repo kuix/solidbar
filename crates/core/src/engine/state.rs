@@ -7,6 +7,7 @@ use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use solidbar_shared::instance::{InstanceSettings, Redirect};
 use solidbar_shared::settings::Settings;
+use solidbar_shared::view::AgentServerView;
 
 use crate::api::Api;
 use crate::api::models::{Client, Me, Membership, Project, Task};
@@ -83,6 +84,7 @@ pub(crate) struct State {
     pub online: bool,
     pub loading: bool,
     pub last_refresh: Option<Timestamp>,
+    pub agent_server: AgentServerView,
 }
 
 impl State {

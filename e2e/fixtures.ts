@@ -50,6 +50,7 @@ const settings = {
   },
   single_key_shortcuts: true,
   launch_at_login_offered: true,
+  agents: { enabled: false, port: null, key: null },
 };
 
 const catalog = {
@@ -124,6 +125,7 @@ export function signedIn(): Fixture {
       time_zone_hint: null,
       tray: { timer_running: false, title: "2:00", tooltip: "Today: 2:00" },
       breaks_enabled: false,
+      agents: { status: "off" },
     },
     catalog: structuredClone(catalog),
   };

@@ -29,6 +29,26 @@ pub struct AppView {
     /// The active organization lets its members track breaks.
     #[serde(default)]
     pub breaks_enabled: bool,
+    /// The MCP server for AI agents.
+    #[serde(default)]
+    pub agents: AgentServerView,
+}
+
+/// The MCP server for AI agents, as Settings shows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum AgentServerView {
+    #[default]
+    Off,
+    /// Answering at `url`. `bridge` is the binary that relays to it for agents that start
+    /// their servers themselves (with the argument [`crate::agents::BRIDGE_ARG`]).
+    Running {
+        url: String,
+        bridge: String,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 /// What the menu bar shows next to the icon.

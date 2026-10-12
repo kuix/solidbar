@@ -45,6 +45,12 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
       emit("view://app", structuredClone(state.app));
     };
 
+    const running = (port: number) => ({
+      status: "running",
+      url: `http://127.0.0.1:${port}/mcp`,
+      bridge: "/Applications/Solidbar.app/Contents/MacOS/solidbar",
+    });
+
     const handlers: Record<string, (args: any) => unknown> = {
       bootstrap: () => ({ app: structuredClone(state.app), catalog: structuredClone(state.catalog) }),
       select_date: ({ date }) => {
@@ -126,6 +132,23 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
         changed();
       },
       get_autostart: () => false,
+      set_agent_access: ({ enabled }) => {
+        const agents = state.app.settings.agents;
+        agents.enabled = enabled;
+        agents.port ??= 52731;
+        agents.key ??= "k3y-1";
+        state.app.agents = enabled ? running(agents.port) : { status: "off" };
+        changed();
+      },
+      reset_agent_key: () => {
+        state.app.settings.agents.key = "k3y-2";
+        changed();
+      },
+      move_agent_server: () => {
+        state.app.settings.agents.port = 52800;
+        state.app.agents = running(52800);
+        changed();
+      },
       update_get: () => structuredClone(update),
       update_check: () => {
         update.state = state.updateCheck ?? { state: "up_to_date" };

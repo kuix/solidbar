@@ -1167,6 +1167,26 @@ input.time-field {
   margin-top: 10px;
 }
 
+.agent-field {
+  margin-top: 8px;
+}
+
+.agent-field label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.copy-row {
+  display: flex;
+  gap: 6px;
+}
+
+.copy-row input {
+  flex: 1;
+  min-width: 0;
+  font: 12px ui-monospace, monospace;
+}
+
 .shortcut-row {
   display: grid;
   grid-template-columns: 1fr auto auto;

@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use solidbar_core::engine::Engine;
+use solidbar_core::mcp::AgentServer;
 use solidbar_shared::instance::InstanceSettings;
 use solidbar_shared::ipc::{
-    AdjustArgs, AutostartArgs, BootstrapView, CommandError, DateArgs, EntriesArgs, EntryDraft,
-    FormArgs, MembershipArgs, PinArgs, RefreshArgs, ShortcutArgs, TimerSource,
+    AdjustArgs, AgentAccessArgs, AutostartArgs, BootstrapView, CommandError, DateArgs, EntriesArgs,
+    EntryDraft, FormArgs, MembershipArgs, PinArgs, RefreshArgs, ShortcutArgs, TextArgs,
+    TimerSource,
 };
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateView;
@@ -17,7 +19,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::autostart::Autostart;
-use crate::{panel, shortcuts, updates};
+use crate::{agents, panel, shortcuts, updates};
 
 type EngineState<'a> = State<'a, Arc<Engine>>;
 type Reply<T = ()> = Result<T, CommandError>;
@@ -167,6 +169,37 @@ pub fn open_licenses(app: AppHandle) -> Reply {
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|error| cant_open(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn set_agent_access(
+    engine: EngineState<'_>,
+    agents: State<'_, Arc<AgentServer>>,
+    args: AgentAccessArgs,
+) -> Reply {
+    engine.set_agent_access(args.enabled)?;
+    agents.sync().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reset_agent_key(engine: EngineState<'_>) {
+    engine.reset_agent_key();
+}
+
+#[tauri::command]
+pub async fn move_agent_server(
+    engine: EngineState<'_>,
+    agents: State<'_, Arc<AgentServer>>,
+) -> Reply {
+    engine.move_agent_server()?;
+    agents.sync().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copy_text(args: TextArgs) -> Reply {
+    agents::copy(&args.text)
 }
 
 #[tauri::command]

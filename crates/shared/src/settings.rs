@@ -36,6 +36,19 @@ pub struct Settings {
     /// where a spoken word could set one off.
     pub single_key_shortcuts: bool,
     pub launch_at_login_offered: bool,
+    /// The MCP server for AI agents.
+    pub agents: AgentAccess,
+}
+
+/// The local MCP server that lets AI agents read and add time entries (Settings › AI agents).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentAccess {
+    pub enabled: bool,
+    /// Picked once, a free one, so the address agents were given keeps working.
+    pub port: Option<u16>,
+    /// What agents send as `Authorization: Bearer …`.
+    pub key: Option<String>,
 }
 
 impl Default for Settings {
@@ -53,6 +66,7 @@ impl Default for Settings {
                 .collect(),
             single_key_shortcuts: true,
             launch_at_login_offered: false,
+            agents: AgentAccess::default(),
         }
     }
 }
@@ -88,6 +102,7 @@ mod tests {
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.workday_start, "09:00");
         assert!(settings.single_key_shortcuts);
+        assert!(!settings.agents.enabled);
         assert_eq!(
             settings.shortcut(GlobalAction::TogglePanel),
             Some("Alt+Super+KeyT")

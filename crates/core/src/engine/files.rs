@@ -1,5 +1,7 @@
 //! Settings and the data cache on disk, written atomically (temporary file, then rename).
 
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -75,7 +77,16 @@ fn write_json<T: Serialize>(path: &Path, value: &T) {
             std::fs::create_dir_all(parent)?;
         }
         let temporary = path.with_extension("tmp");
-        std::fs::write(&temporary, serde_json::to_vec(value)?)?;
+        // Only this user: the settings hold the key agents use.
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        file.write_all(&serde_json::to_vec(value)?)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        drop(file);
         std::fs::rename(&temporary, path)
     })();
     if let Err(error) = result {
@@ -99,6 +110,11 @@ mod tests {
         };
         files.save_settings(&settings);
         assert_eq!(files.load_settings().theme, Theme::Light);
+        let mode = std::fs::metadata(directory.path().join("settings.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

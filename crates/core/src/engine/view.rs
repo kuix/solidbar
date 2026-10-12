@@ -58,6 +58,7 @@ pub(crate) fn app_view(state: &State, clocks: &Clocks) -> AppView {
         time_zone_hint: time_zone_hint(state, &calendar, clocks.system_zone),
         tray: tray_view(state, &calendar, today, clocks),
         breaks_enabled: state.breaks_enabled(),
+        agents: state.agent_server.clone(),
     }
 }
 
@@ -544,6 +545,7 @@ mod tests {
             online: true,
             loading: false,
             last_refresh: None,
+            agent_server: Default::default(),
         }
     }
 

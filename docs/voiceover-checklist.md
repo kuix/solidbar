@@ -52,6 +52,8 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] Theme options read as a radio group "Appearance".
 - [ ] "Check for updates" reads the current version as its description; after activating it, VO announces "Solidbar is up to date" (or the new version) and focus stays on the button.
 - [ ] "Licenses" reads the copyright and "without warranty" as its description; activating it opens the licenses page in the browser, where VO reaches each license by heading (VO-⌘H).
+- [ ] "Let AI agents use Solidbar" is a switch with its explanation as description; turning it on reveals "Address" and "Key" fields, each with a "Copy the …" button, and VO announces "Copied the address" (or the key, or the setup) after copying.
+- [ ] "New key" keeps focus on the button and the Key field gets the new key; a taken port is announced as an alert with a "Use another port" button.
 - [ ] The sign-in form's fields have labels, the redirect URIs are read with the client ID field, "Checking the OAuth client…" and then "Waiting for you to approve…" are announced, and errors are announced right away.
 
 ## Visual

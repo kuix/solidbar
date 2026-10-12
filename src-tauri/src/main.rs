@@ -1,3 +1,4 @@
+mod agents;
 mod autostart;
 mod commands;
 mod locale;
@@ -18,6 +19,9 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some(solidbar_shared::agents::BRIDGE_ARG) {
+        std::process::exit(agents::run_bridge());
+    }
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -60,6 +64,10 @@ fn main() {
             commands::panel_set_pinned,
             commands::open_in_browser,
             commands::open_licenses,
+            commands::set_agent_access,
+            commands::reset_agent_key,
+            commands::move_agent_server,
+            commands::copy_text,
             commands::quit,
             commands::update_get,
             commands::update_check,
@@ -83,6 +91,7 @@ fn main() {
                     links.deliver_redirect(url.as_str());
                 }
             });
+            agents::setup(handle, engine.clone());
             tauri::async_runtime::spawn(engine.clone().run_periodic());
             // A debug build would offer to replace itself with the latest release.
             if !cfg!(debug_assertions) {

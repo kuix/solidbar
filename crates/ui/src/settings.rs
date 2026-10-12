@@ -2,16 +2,18 @@
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use solidbar_shared::agents::{claude_code_command, desktop_config};
 use solidbar_shared::clock::ClockFormat;
 use solidbar_shared::ipc::{
-    AuthLogout, AutostartArgs, GetAutostart, InstallUpdate, MembershipArgs, OpenInBrowser,
-    OpenLicenses, Quit, ResumeShortcuts, SelectOrg, SetAutostart, SetShortcut, ShortcutArgs,
-    SuspendShortcuts, UpdateSettings,
+    AgentAccessArgs, AuthLogout, AutostartArgs, CopyText, GetAutostart, InstallUpdate,
+    MembershipArgs, MoveAgentServer, OpenInBrowser, OpenLicenses, Quit, ResetAgentKey,
+    ResumeShortcuts, SelectOrg, SetAgentAccess, SetAutostart, SetShortcut, ShortcutArgs,
+    SuspendShortcuts, TextArgs, UpdateSettings,
 };
 use solidbar_shared::settings::{SettingsPatch, Theme};
 use solidbar_shared::shortcuts::GlobalAction;
 use solidbar_shared::update::UpdateState;
-use solidbar_shared::view::AuthView;
+use solidbar_shared::view::{AgentServerView, AuthView, Notice, NoticeKind};
 use web_sys::KeyboardEvent;
 
 use crate::format::update_status;
@@ -246,6 +248,8 @@ pub fn Settings() -> impl IntoView {
                 .map(|action| view! { <ShortcutRecorder action /> })
                 .collect_view()}
 
+            <AgentAccess />
+
             <Updates />
 
             <h3>"About"</h3>
@@ -357,6 +361,137 @@ fn ShortcutRecorder(action: GlobalAction) -> impl IntoView {
             </button>
             {move || problem.get().map(|problem| view! { <p class="field-error" role="alert">{problem}</p> })}
         </div>
+    }
+}
+
+/// The MCP server for AI agents, and what agents need to reach it.
+#[component]
+fn AgentAccess() -> impl IntoView {
+    let store = expect_context::<Store>();
+    let access = Memo::new(move |_| {
+        store
+            .with_app(|app| app.settings.agents.clone())
+            .unwrap_or_default()
+    });
+    let server = Memo::new(move |_| store.with_app(|app| app.agents.clone()).unwrap_or_default());
+    // Read when used, so a new key changes the field without rebuilding (and unfocusing) it.
+    let key = move || access.with(|access| access.key.clone().unwrap_or_default());
+    let move_server = move |_| store.run::<MoveAgentServer>(());
+    let new_key = move |_| store.run::<ResetAgentKey>(());
+    let copy = move |text: String, what: &'static str| {
+        spawn_local(async move {
+            match call::<CopyText>(&TextArgs { text }).await {
+                Ok(()) => store.notify(Notice {
+                    kind: NoticeKind::Info,
+                    text: format!("Copied {what}"),
+                }),
+                Err(error) => store.error(&error.message),
+            }
+        });
+    };
+
+    view! {
+        <h3>"AI agents"</h3>
+        <label class="switch">
+            <input
+                type="checkbox"
+                role="switch"
+                aria-describedby="agents-help"
+                prop:checked=move || access.get().enabled
+                on:change=move |event| {
+                    store.run::<SetAgentAccess>(AgentAccessArgs {
+                        enabled: event_target_checked(&event),
+                    })
+                }
+            />
+            "Let AI agents use Solidbar"
+        </label>
+        <p id="agents-help" class="help">
+            "Agents like Claude can then list your projects and time entries, add entries and change them, as you, in the organization above. Only apps on this Mac that have the key get in (MCP)."
+        </p>
+        {move || match server.get() {
+            AgentServerView::Off => ().into_any(),
+            AgentServerView::Failed { message } => {
+                view! {
+                    <p class="field-error" role="alert">{message}</p>
+                    <div class="button-row">
+                        <button type="button" on:click=move_server>
+                            "Use another port"
+                        </button>
+                    </div>
+                }
+                    .into_any()
+            }
+            AgentServerView::Running { url, bridge } => {
+                let copy_url = url.clone();
+                let command_url = url.clone();
+                view! {
+                    <div class="agent-field">
+                        <label for="agent-address">"Address"</label>
+                        <div class="copy-row">
+                            <input id="agent-address" type="text" readonly prop:value=url />
+                            <button
+                                type="button"
+                                aria-label="Copy the address"
+                                on:click=move |_| copy(copy_url.clone(), "the address")
+                            >
+                                "Copy"
+                            </button>
+                        </div>
+                    </div>
+                    <div class="agent-field">
+                        <label for="agent-key">"Key"</label>
+                        <div class="copy-row">
+                            <input id="agent-key" type="password" readonly prop:value=key />
+                            <button
+                                type="button"
+                                aria-label="Copy the key"
+                                on:click=move |_| copy(key(), "the key")
+                            >
+                                "Copy"
+                            </button>
+                        </div>
+                    </div>
+                    <div class="button-row">
+                        <button
+                            type="button"
+                            aria-describedby="claude-code-help"
+                            on:click=move |_| {
+                                copy(claude_code_command(&command_url, &key()), "the command for Claude Code")
+                            }
+                        >
+                            "Copy for Claude Code"
+                        </button>
+                        <button
+                            type="button"
+                            aria-describedby="claude-desktop-help"
+                            on:click=move |_| copy(desktop_config(&bridge), "the setup for Claude Desktop")
+                        >
+                            "Copy for Claude Desktop"
+                        </button>
+                    </div>
+                    <p id="claude-code-help" class="help">
+                        "Claude Code: run the copied command in Terminal."
+                    </p>
+                    <p id="claude-desktop-help" class="help">
+                        "Claude Desktop: add it to the config (Settings › Developer › Edit Config), then restart Claude."
+                    </p>
+                    <div class="button-row">
+                        <button
+                            type="button"
+                            aria-describedby="new-key-help"
+                            on:click=new_key
+                        >
+                            "New key"
+                        </button>
+                    </div>
+                    <p id="new-key-help" class="help">
+                        "The old key stops working. Agents set up with it need the new one; Claude Desktop doesn't."
+                    </p>
+                }
+                    .into_any()
+            }
+        }}
     }
 }
 

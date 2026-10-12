@@ -167,6 +167,16 @@ pub struct AutostartArgs {
     pub enabled: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAccessArgs {
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextArgs {
+    pub text: String,
+}
+
 /// Why the panel appeared; decides where focus goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -202,6 +212,13 @@ commands! {
     OpenInBrowser = "open_in_browser", () => ();
     /// Opens the licenses of Solidbar and the crates it's built with in the browser.
     OpenLicenses = "open_licenses", () => ();
+    /// Turns the MCP server for AI agents on or off.
+    SetAgentAccess = "set_agent_access", AgentAccessArgs => ();
+    /// Gives agents a new key; the old one stops working.
+    ResetAgentKey = "reset_agent_key", () => ();
+    /// Moves the MCP server to another free port, when another app took its own.
+    MoveAgentServer = "move_agent_server", () => ();
+    CopyText = "copy_text", TextArgs => ();
     Quit = "quit", () => ();
     GetUpdate = "update_get", () => UpdateView;
     /// Checks now and reports the result, including "up to date" and errors.

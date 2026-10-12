@@ -2,6 +2,7 @@
 //!
 //! Everything here must compile for both `aarch64-apple-darwin` and `wasm32-unknown-unknown`.
 
+pub mod agents;
 pub mod clock;
 pub mod duration;
 pub mod fuzzy;

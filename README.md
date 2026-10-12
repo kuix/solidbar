@@ -19,6 +19,7 @@ The official [solidtime desktop app](https://github.com/solidtime-io/solidtime-d
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
+- **AI agents.** Turn on Settings › AI agents and Claude (or any MCP client) can list your projects and entries, add a week's worth of entries in one go, and fix them, with the same rules as the panel.
 - **Keyboard and VoiceOver first.** Every action has a shortcut, most of them a single key like in Harvest; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
 
 Solidbar is not an official solidtime product.
@@ -104,6 +105,52 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 
 The global shortcuts can be changed in Settings.
 
+## AI agents (MCP)
+
+Solidbar can be an [MCP](https://modelcontextprotocol.io) server, so AI agents like Claude can work with your time entries: "log 2 hours on Design system for every day last week", "what did I track yesterday?", "move this morning's standup to 9:30". It's off until you turn on **Settings › AI agents**.
+
+The agent works as you, in the organization chosen in Solidbar, and under the panel's rules: dates and times are in your solidtime time zone, an entry without a start time starts where the day's last entry ends, and entries can't cross midnight. The panel shows what agents add or change right away.
+
+| Tool | What it does |
+|---|---|
+| `list_projects` | Projects with their clients and tasks, and whether they're billable by default |
+| `list_time_entries` | Entries on a range of days (up to a year), with totals |
+| `add_time_entries` | Adds up to 100 entries in one call; if one doesn't make sense, none is added, and the answer says what to fix |
+| `update_time_entry` | Changes an entry's day, times, project, task, description or billable flag |
+
+There's no tool for deleting entries; that stays in the panel.
+
+### Connecting an agent
+
+With AI agents on, Settings shows the server's address (`http://127.0.0.1:<port>/mcp`) and a key, and copies the setup for you:
+
+- **Claude Code**: *Copy for Claude Code* gives a command to run in Terminal:
+
+  ```sh
+  claude mcp add --transport http --scope user solidbar http://127.0.0.1:<port>/mcp --header "Authorization: Bearer <key>"
+  ```
+
+- **Claude Desktop**, and other apps that start their MCP servers themselves: *Copy for Claude Desktop* gives the entry for `claude_desktop_config.json` (Claude › Settings › Developer › Edit Config); restart Claude after adding it. Solidbar's own binary relays to the app, and starts Solidbar if it isn't running:
+
+  ```json
+  {
+    "mcpServers": {
+      "solidbar": {
+        "command": "/Applications/Solidbar.app/Contents/MacOS/solidbar",
+        "args": ["mcp"]
+      }
+    }
+  }
+  ```
+
+- **Other MCP clients** (Cursor, VS Code, …): use the address with the header `Authorization: Bearer <key>` (Streamable HTTP).
+
+claude.ai in the browser and Claude's cloud connectors can't reach a server on your Mac, so they don't work with Solidbar.
+
+### Security
+
+The server listens on `127.0.0.1` only, so nothing outside your Mac can reach it, and every request needs the key. It refuses requests from web pages (it checks `Host` and `Origin`, against DNS rebinding). The key is stored with Solidbar's settings, readable only by your user. *New key* replaces it; agents set up with the old one need the new one, except Claude Desktop, which reads it from Solidbar. Turning AI agents off closes the port.
+
 ## Updates
 
 Solidbar looks for a new release on GitHub when it starts and every six hours, and offers it in the panel ("Restart to update"). Settings › Updates checks right away. Updates are signed; the app only installs archives signed with the project's key.
@@ -138,7 +185,7 @@ cargo about generate --workspace --locked --fail about.hbs -o THIRD_PARTY_LICENS
 Layout:
 
 - `crates/shared` — types and pure logic used by both sides: the IPC contract, view models, duration parsing, fuzzy matching.
-- `crates/core` — no Tauri: solidtime API client, OAuth, keychain, the time model (stacking, ±1h cascade) and the engine that owns state.
+- `crates/core` — no Tauri: solidtime API client, OAuth, keychain, the time model (stacking, ±1h cascade), the engine that owns state, and the MCP server for AI agents (`mcp`).
 - `crates/ui` — the Leptos UI (compiled to WebAssembly).
 - `src-tauri` — the macOS shell: menu bar item, the panel (`tauri-nspanel`), global shortcuts, deep links.
 - `e2e` — Playwright tests against the UI with a fake backend, including axe accessibility checks.
