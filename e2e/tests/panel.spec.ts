@@ -283,6 +283,20 @@ test("settings open with ⌘, and close with Escape", async ({ page }) => {
   await expect(page.locator("#entry-e1")).toBeFocused();
 });
 
+test("the gear opens Settings, and pressed again goes back to the list", async ({ page }) => {
+  await open(page);
+  const gear = page.getByRole("button", { name: "Settings", exact: true });
+  await expect(gear).toHaveAttribute("aria-pressed", "false");
+  await gear.click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(gear).toHaveAttribute("aria-pressed", "true");
+
+  await gear.click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(0);
+  await expect(gear).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("#entry-e1")).toBeFocused();
+});
+
 test("Settings opens the licenses, which say there's no warranty", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Meta+Comma");

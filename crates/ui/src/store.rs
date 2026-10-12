@@ -302,6 +302,20 @@ impl Store {
         self.focus.set(Some(Focus::Entry { date: None }));
     }
 
+    /// The gear opens Settings, and closes it again like ⌘, and Escape do.
+    pub fn toggle_settings(self) {
+        if self.screen.get_untracked() == Screen::Settings {
+            self.close_settings();
+        } else {
+            self.screen.set(Screen::Settings);
+        }
+    }
+
+    pub fn close_settings(self) {
+        self.screen.set(Screen::List);
+        self.focus.set(Some(Focus::Entry { date: None }));
+    }
+
     /// The row's timer button: stops the running one, otherwise continues the row (a new entry
     /// like it). During a break, continuing work ends the break.
     pub fn toggle_row_timer(self, row: &Row) {

@@ -17,7 +17,7 @@ use web_sys::KeyboardEvent;
 use crate::format::update_status;
 use crate::ipc::call;
 use crate::keymap::{Keys, display, focus_element};
-use crate::store::{Focus, Screen, Store};
+use crate::store::{Focus, Store};
 use crate::time_field::TimeField;
 
 #[component]
@@ -74,10 +74,7 @@ pub fn Settings() -> impl IntoView {
             }
         });
     };
-    let back = move |_| {
-        store.screen.set(Screen::List);
-        store.focus.set(Some(Focus::Entry { date: None }));
-    };
+    let back = move |_| store.close_settings();
     let theme_choice = move |theme: Theme, label: &'static str| {
         view! {
             <label class="choice">

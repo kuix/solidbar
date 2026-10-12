@@ -190,8 +190,7 @@ pub fn install(store: Store) {
                 if keys.is("Meta+KeyO") {
                     focus_element("settings-org")
                 } else if keys.is("Escape") || keys.is("Meta+Comma") {
-                    store.screen.set(Screen::List);
-                    store.focus.set(Some(Focus::Entry { date: None }));
+                    store.close_settings();
                     true
                 } else {
                     false

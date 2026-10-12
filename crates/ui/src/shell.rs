@@ -127,7 +127,8 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
                 aria-label="Settings"
                 aria-keyshortcuts="Meta+Comma"
                 title="Settings (⌘,)"
-                on:click=move |_| store.screen.set(Screen::Settings)
+                aria-pressed=move || (store.screen.get() == Screen::Settings).to_string()
+                on:click=move |_| store.toggle_settings()
             >
                 {icons::gear()}
             </button>
