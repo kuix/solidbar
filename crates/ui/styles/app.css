@@ -592,6 +592,12 @@ code {
   border-top: 1px solid var(--separator);
 }
 
+/* A column, so an empty day's message can take the space under the heading. */
+.day-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .day-heading {
   display: flex;
   justify-content: space-between;
@@ -631,7 +637,16 @@ code {
   padding: 16px 0;
 }
 
+/* Nothing on the day (or still loading): the message in the middle of the panel. */
+.empty-day {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
 .entries {
+  flex: none;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -698,14 +713,39 @@ code {
   width: 100%;
   min-width: 0;
   text-align: left;
-  padding: 6px 4px 6px 8px;
+  padding: 6px 12px 6px 8px;
   border: none;
   background: transparent;
   border-radius: 8px;
 }
 
+/* The row has the hover colour; the button on it shouldn't add another. */
+.entry-row .entry-main:hover:not(:focus-visible) {
+  background: transparent;
+}
+
 .entry-main:focus-visible {
   background: var(--selected);
+}
+
+/* The keyboard selection covers the whole row, its buttons included. */
+@supports selector(:has(*)) {
+  .entry-row:has(> .entry-main:focus-visible) {
+    background: var(--selected);
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+
+  .entry-row > .entry-main:focus-visible {
+    background: transparent;
+    outline: none;
+  }
+
+  @media (prefers-contrast: more) {
+    .entry-row:has(> .entry-main:focus-visible) {
+      outline-width: 3px;
+    }
+  }
 }
 
 /* A group of continued entries: the count opens it. */

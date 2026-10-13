@@ -349,7 +349,14 @@ fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
     });
     view! {
         {move || match day.get() {
-            None => view! { <p class="empty" role="status">"Loading…"</p> }.into_any(),
+            None => {
+                view! {
+                    <div class="empty-day">
+                        <p class="empty" role="status">"Loading…"</p>
+                    </div>
+                }
+                    .into_any()
+            }
             Some(day) => {
                 let empty = day.entries.is_empty();
                 let label = day.label.clone();
@@ -384,13 +391,15 @@ fn DayList(day: Memo<Option<DayView>>) -> impl IntoView {
                         when=move || !empty
                         fallback=move || {
                             view! {
-                                <p class="empty">
-                                    {format!("No time on {label}. ")}
-                                    <button type="button" class="link" on:click=move |_| store.open_new_form()>
-                                        "Add time"
-                                    </button>
-                                    {move || if store.single_keys() { " (N)" } else { " (⌘N)" }}
-                                </p>
+                                <div class="empty-day">
+                                    <p class="empty">
+                                        {format!("No time on {label}. ")}
+                                        <button type="button" class="link" on:click=move |_| store.open_new_form()>
+                                            "Add time"
+                                        </button>
+                                        {move || if store.single_keys() { " (N)" } else { " (⌘N)" }}
+                                    </p>
+                                </div>
                             }
                         }
                     >
