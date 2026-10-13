@@ -1,6 +1,10 @@
 // A believable week for the README screenshots.
 
+import { readFileSync } from "node:fs";
 import { entry, type Fixture, signedIn } from "../fixtures";
+
+// Settings shows the version being released.
+const { version } = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
 
 const design = { project_id: "p1", project_name: "Design system", client_name: "Kuix", color: "#ef5350" };
 const support = { project_id: "p3", task_id: null, project_name: "Support", task_name: null, client_name: "ACME", color: "#66bb6a" };
@@ -62,5 +66,6 @@ export function showcase(): Fixture {
     project_name: "Solidbar",
     in_active_org: true,
   };
+  fixture.update = { current_version: version, state: { state: "idle" } };
   return fixture;
 }

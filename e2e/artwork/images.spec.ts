@@ -55,6 +55,18 @@ test("settings", async ({ page }) => {
   }
 });
 
+test("AI agents", async ({ page }) => {
+  for (const scheme of ["light", "dark"] as const) {
+    await open(page, scheme);
+    await page.keyboard.press("Meta+Comma");
+    await page.getByRole("switch", { name: "Let AI agents use Solidbar" }).click();
+    await expect(page.getByLabel("Address", { exact: true })).toHaveValue("http://127.0.0.1:52731/mcp");
+    await page.getByRole("heading", { name: "AI agents" }).evaluate((heading) => heading.scrollIntoView({ block: "start" }));
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await shoot(page, `agents-${scheme}.png`);
+  }
+});
+
 test.describe("cover", () => {
   test.use({ viewport: { width: 1280, height: 640 }, deviceScaleFactor: 1.5 });
   test("cover", async ({ page }) => {

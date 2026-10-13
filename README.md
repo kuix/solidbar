@@ -6,29 +6,35 @@
 
 ![Solidbar: the panel under the menu bar, with today's entries and a new entry being added](docs/images/cover.png)
 
-Solidbar puts [solidtime](https://www.solidtime.io), the open-source time tracker, in your Mac's menu bar: today's entries, the week at a glance, and a new entry a few keystrokes away.
+Solidbar puts [solidtime](https://www.solidtime.io), the open-source time tracker, in your Mac's menu bar: today's entries, the week at a glance, and a new entry a few keystrokes away. It can also let AI agents like Claude log your time for you.
 
 ## Why
 
 The official [solidtime desktop app](https://github.com/solidtime-io/solidtime-desktop) is an Electron window: a lot of app for something you open dozens of times a day, with no global hotkey and few shortcuts. [@matkovsky](https://github.com/matkovsky) missed the keyboard shortcuts the most, so Solidbar does everything from the keyboard. It's a small panel under the menu bar, written in Rust and modelled on Harvest's Mac app.
 
+Solidbar is not an official solidtime product.
+
+## Features
+
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
 - **Fast entry.** `N`, pick a recent project with `⌘1`–`⌘5` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. New entries continue where the day's last entry ended.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
-- **Simple timer.** `S` continues the selected entry (or stops the running one). Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
+- **Simple timer.** `S` continues the selected entry (or stops the running one); `⌘↩` in the entry form starts one, from an earlier start time too. Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
+- **No accidental deletes.** Hold `⌫` on an entry, or the Delete button in the form, for two seconds; let go earlier and the entry stays.
+- **AI agents (MCP).** Turn on Settings › AI agents and Claude, or any MCP client, can list your projects and entries, log a week's worth of entries in one go and fix them, under the same rules as the panel. See [AI agents](#ai-agents-mcp).
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
-- **AI agents.** Turn on Settings › AI agents and Claude (or any MCP client) can list your projects and entries, add a week's worth of entries in one go, and fix them, with the same rules as the panel.
+- **At home on the Mac.** Light and dark like macOS (or as set in Settings), the panel opens under the menu bar icon on whichever screen you click, it can launch at login, and it [updates itself](#updates).
 - **Keyboard and VoiceOver first.** Every action has a shortcut, most of them a single key like in Harvest; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
-
-Solidbar is not an official solidtime product.
 
 ## Screenshots
 
-| Today | New entry | Settings |
-|---|---|---|
-| ![Today's entries with a running timer, and the week's daily totals](docs/images/today-light.png) | ![The entry form in dark mode, searching projects for "de"](docs/images/new-entry-dark.png) | ![Settings: account, organization, appearance and time format](docs/images/settings-light.png) |
+| Today | New entry |
+|---|---|
+| ![Today's entries with a running timer, and the week's daily totals](docs/images/today-light.png) | ![The entry form in dark mode, searching projects for "de"](docs/images/new-entry-dark.png) |
+| **Settings** | **AI agents** |
+| ![Settings: account, organization, appearance and time format](docs/images/settings-light.png) | ![Settings › AI agents in dark mode: the MCP server's address and key, and the setup to copy for Claude Code and Claude Desktop](docs/images/agents-dark.png) |
 
 ## Install
 
@@ -130,7 +136,7 @@ With AI agents on, Settings shows the server's address (`http://127.0.0.1:<port>
   claude mcp add --transport http --scope user solidbar http://127.0.0.1:<port>/mcp --header "Authorization: Bearer <key>"
   ```
 
-- **Claude Desktop**, and other apps that start their MCP servers themselves: *Copy for Claude Desktop* gives the entry for `claude_desktop_config.json` (Claude › Settings › Developer › Edit Config); restart Claude after adding it. Solidbar's own binary relays to the app, and starts Solidbar if it isn't running:
+- **Claude Desktop**, and other apps that start their MCP servers themselves: *Copy for Claude Desktop* gives the entry for `claude_desktop_config.json`. In Claude, open Settings › Developer › Edit Config (not Settings › Connectors), add the entry to `mcpServers`, and restart Claude. Solidbar's own binary relays to the app, and starts Solidbar if it isn't running:
 
   ```json
   {
@@ -145,7 +151,7 @@ With AI agents on, Settings shows the server's address (`http://127.0.0.1:<port>
 
 - **Other MCP clients** (Cursor, VS Code, …): use the address with the header `Authorization: Bearer <key>` (Streamable HTTP).
 
-claude.ai in the browser and Claude's cloud connectors can't reach a server on your Mac, so they don't work with Solidbar.
+Custom connectors (Claude › Settings › Connectors, or claude.ai in the browser) connect from Anthropic's servers, so they can't reach a server on your Mac: Claude refuses a `127.0.0.1` address there. Use the config file above instead.
 
 ### Security
 
@@ -187,7 +193,7 @@ Layout:
 - `crates/shared` — types and pure logic used by both sides: the IPC contract, view models, duration parsing, fuzzy matching.
 - `crates/core` — no Tauri: solidtime API client, OAuth, keychain, the time model (stacking, ±1h cascade), the engine that owns state, and the MCP server for AI agents (`mcp`).
 - `crates/ui` — the Leptos UI (compiled to WebAssembly).
-- `src-tauri` — the macOS shell: menu bar item, the panel (`tauri-nspanel`), global shortcuts, deep links.
+- `src-tauri` — the macOS shell: menu bar item, the panel (`tauri-nspanel`), global shortcuts, deep links, and `solidbar mcp`, the stdio bridge for AI agents.
 - `e2e` — Playwright tests against the UI with a fake backend, including axe accessibility checks.
 
 ## Releasing
