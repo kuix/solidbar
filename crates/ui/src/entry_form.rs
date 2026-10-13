@@ -355,7 +355,6 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                     </Show>
                     <button type="button" aria-keyshortcuts="Escape" on:click=move |_| store.close_form()>
                         "Cancel"
-                        <kbd aria-hidden="true">"⎋"</kbd>
                     </button>
                     {(!delete_ids.is_empty()).then(|| view! { <HoldToDelete ids=delete_ids.clone() /> })}
                 </div>
