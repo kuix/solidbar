@@ -23,6 +23,17 @@ async function open(page: Page, scheme: "light" | "dark") {
   await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
 }
 
+/** Takes the focus away for good: the panel puts it back on a row after each update that
+ * comes in while nothing has it, so wait for the updates after the page load. */
+async function blur(page: Page) {
+  await expect(async () => {
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(250);
+    const focused = await page.evaluate(() => document.activeElement?.tagName ?? "BODY");
+    expect(focused).toBe("BODY");
+  }).toPass({ timeout: 10_000 });
+}
+
 async function shoot(page: Page, name: string) {
   await page.screenshot({ path: path.join(images, name), omitBackground: true });
 }
@@ -30,7 +41,7 @@ async function shoot(page: Page, name: string) {
 test("today", async ({ page }) => {
   for (const scheme of ["light", "dark"] as const) {
     await open(page, scheme);
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await blur(page);
     await shoot(page, `today-${scheme}.png`);
   }
 });
@@ -52,7 +63,7 @@ test("settings", async ({ page }) => {
     await open(page, scheme);
     await page.keyboard.press("Meta+Comma");
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await blur(page);
     await shoot(page, `settings-${scheme}.png`);
   }
 });
@@ -64,7 +75,7 @@ test("AI agents", async ({ page }) => {
     await page.getByRole("switch", { name: "Let AI agents use Solidbar" }).click();
     await expect(page.getByLabel("Address", { exact: true })).toHaveValue("http://127.0.0.1:52731/mcp");
     await page.getByRole("heading", { name: "AI agents" }).evaluate((heading) => heading.scrollIntoView({ block: "start" }));
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await blur(page);
     await shoot(page, `agents-${scheme}.png`);
   }
 });
