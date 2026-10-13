@@ -70,6 +70,8 @@ pub struct Store {
     pub catalog: RwSignal<Catalog>,
     pub screen: RwSignal<Screen>,
     pub form: RwSignal<Option<FormInit>>,
+    /// The day the open form saves to, which the header's ‹ › change.
+    pub form_date: RwSignal<Option<Date>>,
     /// The element id of the row that holds the roving focus (see [`Row::dom_id`]).
     pub selected_row: RwSignal<Option<String>>,
     /// Groups (by id) opened to show their entries.
@@ -96,6 +98,7 @@ impl Store {
             catalog: RwSignal::new(Catalog::default()),
             screen: RwSignal::new(Screen::List),
             form: RwSignal::new(None),
+            form_date: RwSignal::new(None),
             selected_row: RwSignal::new(None),
             expanded: RwSignal::new(HashSet::new()),
             confirm_delete: RwSignal::new(None),
@@ -288,6 +291,7 @@ impl Store {
             match call::<PrepareForm>(&args).await {
                 Ok(init) => {
                     self.confirm_delete.set(None);
+                    self.form_date.set(init.date.parse().ok());
                     self.form.set(Some(init));
                     self.screen.set(Screen::Form);
                 }
@@ -297,12 +301,12 @@ impl Store {
     }
 
     pub fn close_form(self) {
-        let date = self
-            .form
-            .with_untracked(|form| form.as_ref()?.date.parse::<Date>().ok());
+        let date = self.form_date.get_untracked();
         self.screen.set(Screen::List);
         self.form.set(None);
-        // Opening the panel went back to today; a form it kept returns to its own day.
+        self.form_date.set(None);
+        // The list goes to the form's day: it may have moved the entry to another one, or
+        // opening the panel went back to today while it kept the form.
         match date.filter(|date| Some(*date) != self.selected_date()) {
             Some(date) => {
                 let row = self.selected_row.get_untracked();
@@ -311,6 +315,22 @@ impl Store {
             }
             None => self.focus.set(Some(Focus::Entry { date: None })),
         }
+    }
+
+    /// Whether the open form's entry can move to another day: not a running timer, whose
+    /// start is its day, nor a group, whose times stay as they are.
+    pub fn form_day_movable(&self) -> bool {
+        self.form.with(day_movable)
+    }
+
+    /// Moves the open form's entry `days` days (the header's ‹ ›, ⌘[ and ⌘]).
+    pub fn shift_form_day(self, days: i64) {
+        if !self.form.with_untracked(day_movable) {
+            return;
+        }
+        self.form_date.update(|date| {
+            *date = date.and_then(|date| date.checked_add(jiff::Span::new().days(days)).ok());
+        });
     }
 
     /// Whether the form is open for a new entry, rather than for changing one.
@@ -584,6 +604,11 @@ impl Store {
             }
         });
     }
+}
+
+fn day_movable(form: &Option<FormInit>) -> bool {
+    form.as_ref()
+        .is_some_and(|form| !form.running && form.group_ids.is_empty())
 }
 
 /// Sets a live region so screen readers announce `text`, even when it repeats.

@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use solidbar_shared::clock::Time;
 use solidbar_shared::duration::parse_minutes;
-use solidbar_shared::ipc::{EntryDraft, SaveEntry};
+use solidbar_shared::ipc::{EntryDraft, FormArgs, PrepareForm, SaveEntry};
 use solidbar_shared::picker;
 use solidbar_shared::view::{EntryKind, FormInit, WorkOption};
 use wasm_bindgen::JsCast;
@@ -39,17 +39,6 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     let in_group = !group_ids.is_empty();
     let editing = init.entry_id.is_some() || in_group;
     let running = init.running;
-    let day_label = store
-        .with_app(|app| {
-            app.week
-                .as_ref()?
-                .days
-                .iter()
-                .find(|day| day.date == init.date)
-                .map(|day| day.label.clone())
-        })
-        .flatten()
-        .unwrap_or_else(|| init.date.clone());
     let title = match (in_group, editing, running) {
         (true, _, _) => format!("Edit {} entries", group_ids.len()),
         (false, true, true) => "Edit running timer".to_owned(),
@@ -66,11 +55,34 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     let description = RwSignal::new(init.description.clone());
     let duration = RwSignal::new(init.duration.clone());
     let start_time = RwSignal::new(init.start_time.clone());
+    // Where a new entry starts on its day, unless the person sets the start.
+    let default_start = RwSignal::new(init.start_time.clone());
     // Changed by the person, the start is where a timer starts (otherwise: now).
-    let start_changed = {
-        let initial = init.start_time.clone();
-        Memo::new(move |_| start_time.with(|time| !time.is_empty() && *time != initial))
-    };
+    let start_changed = Memo::new(move |_| {
+        start_time.with(|time| !time.is_empty() && default_start.with(|start| time != start))
+    });
+    // A new entry moved to another day starts after that day's last entry, unless the person
+    // set its start.
+    Effect::new(move |previous: Option<Option<jiff::civil::Date>>| {
+        let date = store.form_date.get();
+        let moved = previous.is_some_and(|previous| previous != date);
+        if let Some(date) = date.filter(|_| moved && !editing && !start_changed.get_untracked()) {
+            spawn_local(async move {
+                let args = FormArgs {
+                    date: date.to_string(),
+                    entry_id: None,
+                    group_ids: Vec::new(),
+                };
+                if let Ok(init) = call::<PrepareForm>(&args).await
+                    && store.form_date.get_untracked() == Some(date)
+                {
+                    default_start.try_set(init.start_time.clone());
+                    start_time.try_set(init.start_time);
+                }
+            });
+        }
+        date
+    });
     let hour12 = Memo::new(move |_| store.with_app(|app| app.hour12).unwrap_or(false));
     let timer_label = move || match Time::parse(&start_time.get()) {
         Some(time) if start_changed.get() => {
@@ -140,7 +152,10 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
             id: entry_id.clone(),
             group_ids: draft_group_ids.clone(),
             kind,
-            date: date.clone(),
+            date: store
+                .form_date
+                .get_untracked()
+                .map_or_else(|| date.clone(), |date| date.to_string()),
             project_id,
             task_id,
             description: description.get_untracked(),
@@ -204,6 +219,9 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                 }
                 None => false,
             }
+        } else if keys.is("Meta+BracketLeft") || keys.is("Meta+BracketRight") {
+            store.shift_form_day(if keys.is("Meta+BracketLeft") { -1 } else { 1 });
+            true
         } else if keys.is("Meta+Enter") {
             submit.run(true);
             true
@@ -242,14 +260,13 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     view! {
         <form
             class="entry-form"
-            aria-labelledby="form-title"
+            // "New time entry, Tuesday, Oct 13": the day is in the header, which changes it.
+            aria-labelledby="form-title form-day"
             on:submit=|event| event.prevent_default()
         >
             // Only the fields scroll; the buttons stay at the bottom of the panel.
             <div class="form-body" on:scroll=|_| place_work_popup()>
-                <h2 id="form-title">
-                    {title} <span class="form-day">{format!(" · {day_label}")}</span>
-                </h2>
+                <h2 id="form-title">{title}</h2>
                 {group_note.map(|note| view! { <p class="group-note">{note}</p> })}
                 <WorkPicker work pick />
                 <label for="notes">"Notes"</label>

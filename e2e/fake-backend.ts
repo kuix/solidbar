@@ -67,7 +67,13 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
           entry_id: entry_id ?? null,
           group_ids,
           date,
-          start_time: existing ? "09:00" : "11:00",
+          // A new entry starts where the day's last one ends, or at 09:00.
+          start_time: existing
+            ? "09:00"
+            : (days()
+                .find((day: any) => day.date === date)
+                ?.entries.filter((entry: any) => entry.end_label)
+                .at(-1)?.end_label ?? "09:00"),
           duration: existing ? hm(seconds) : "",
           project_id: existing?.project_id ?? null,
           task_id: existing?.task_id ?? null,

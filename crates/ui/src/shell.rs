@@ -13,8 +13,8 @@ use web_sys::MouseEvent;
 
 use crate::entry_form::EntryForm;
 use crate::format::{
-    format_hm, group_label, installing, interval_label, project_title, spoken_duration, task_title,
-    time_range, work_title,
+    day_title, format_hm, group_label, installing, interval_label, project_title, spoken_duration,
+    task_title, time_range, work_title,
 };
 use crate::icons;
 use crate::rows::Row;
@@ -81,8 +81,9 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
         store.run::<PanelSetPinned>(PinArgs { pinned });
     };
 
-    view! {
-        <header class="header">
+    let in_form = Memo::new(move |_| store.screen.get() == Screen::Form);
+    let week_nav = move || {
+        view! {
             <div class="week-nav">
                 <button
                     type="button"
@@ -115,6 +116,15 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
             >
                 "Today"
             </button>
+        }
+    };
+
+    view! {
+        <header class="header">
+            // The form's entry goes on one day, which these change; weeks and today don't matter.
+            <Show when=move || in_form.get() fallback=week_nav>
+                <FormDayNav />
+            </Show>
             <button
                 type="button"
                 class="icon-button"
@@ -137,6 +147,49 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
                 {icons::gear()}
             </button>
         </header>
+    }
+}
+
+/// The open form's day, with ‹ › (⌘[ ⌘]) to move its entry to the day before or after. A
+/// running timer and a group keep their days.
+#[component]
+fn FormDayNav() -> impl IntoView {
+    let store = expect_context::<Store>();
+    let movable = Memo::new(move |_| store.form_day_movable());
+    let title = move || {
+        store
+            .form_date
+            .get()
+            .map(|date| day_title(date, store.today()))
+            .unwrap_or_default()
+    };
+    view! {
+        <div class="week-nav day-nav">
+            <button
+                type="button"
+                class="icon-button"
+                aria-label="Previous day"
+                aria-keyshortcuts="Meta+BracketLeft"
+                title="Previous day (⌘[)"
+                prop:disabled=move || !movable.get()
+                on:click=move |_| store.shift_form_day(-1)
+            >
+                {icons::chevron_left()}
+            </button>
+            // Announced when it changes, as the day the entry will be saved on.
+            <h1 id="form-day" class="week-label" aria-live="polite">{title}</h1>
+            <button
+                type="button"
+                class="icon-button"
+                aria-label="Next day"
+                aria-keyshortcuts="Meta+BracketRight"
+                title="Next day (⌘])"
+                prop:disabled=move || !movable.get()
+                on:click=move |_| store.shift_form_day(1)
+            >
+                {icons::chevron_right()}
+            </button>
+        </div>
     }
 }
 

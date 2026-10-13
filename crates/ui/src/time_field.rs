@@ -34,6 +34,18 @@ pub fn TimeField(
         }
     });
 
+    // Show a time set from elsewhere, such as the start of the day the form moved to. While
+    // typing, the time comes from the text, so it doesn't change what's typed.
+    Effect::new(move |_| {
+        let time = value.with(|value| Time::parse(value));
+        if let Some(time) = time
+            && text.with_untracked(|text| Time::parse(text)) != Some(time)
+        {
+            text.set(time.display(hour12.get_untracked()));
+            invalid.set(false);
+        }
+    });
+
     let set_time = move |time: Time| {
         value.set(time.to_hm());
         text.set(time.display(hour12.get_untracked()));

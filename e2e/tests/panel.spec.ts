@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectAccessible } from "../a11y";
 import { installFakeBackend, invoked } from "../fake-backend";
-import { type Fixture, signedIn } from "../fixtures";
+import { entry, type Fixture, signedIn, withFriday } from "../fixtures";
 
 async function open(page: Page, fixture: Fixture = signedIn()) {
   await installFakeBackend(page, fixture);
@@ -193,7 +193,7 @@ test("a form keeps what was typed while the panel is away", async ({ page }) => 
   // A click on another app hides the panel; the menu bar icon brings it back.
   await page.evaluate(() => (window as any).__hidePanel());
   await page.evaluate(() => (window as any).__showPanel("toggle"));
-  await expect(page.getByRole("heading", { name: /New time entry.*Thursday, Oct 8/ })).toBeVisible();
+  await expect(page.getByRole("form", { name: "New time entry Thursday, Oct 8" })).toBeVisible();
   await expect(notes).toHaveValue("Ticket review");
   await expect(notes).toBeFocused();
   // ⌥⌘N doesn't start the new entry over either.
@@ -205,6 +205,71 @@ test("a form keeps what was typed while the panel is away", async ({ page }) => 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Thursday, Oct 8" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Thursday, Oct 8/ })).toHaveAttribute("aria-selected", "true");
+});
+
+test("the header moves a new entry to another day, where it starts after the last entry", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Meta+KeyN");
+  // The day takes the week's place in the header, and Today goes.
+  await expect(page.getByRole("form", { name: "New time entry Friday, Oct 9" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previous week" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Today" })).toHaveCount(0);
+  const start = page.getByRole("textbox", { name: "Start" });
+  await expect(start).toHaveValue("11:00");
+
+  await page.keyboard.press("Meta+BracketLeft");
+  await expect(page.locator("#form-day")).toHaveText("Thursday, Oct 8");
+  // Nothing on Thursday: the workday's start.
+  await expect(start).toHaveValue("09:00");
+  for (let day = 0; day < 3; day++) await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(page.locator("#form-day")).toHaveText("Monday, Oct 5");
+  await expect(start).toHaveValue("17:00");
+  await page.getByRole("button", { name: "Next day" }).click();
+  await expect(page.locator("#form-day")).toHaveText("Tuesday, Oct 6");
+  await expect(start).toHaveValue("09:00");
+  await page.keyboard.press("Meta+BracketRight");
+  await page.keyboard.press("Meta+BracketLeft");
+  await expect(page.locator("#form-day")).toHaveText("Tuesday, Oct 6");
+
+  // A start the person set stays.
+  await start.fill("14:00");
+  await page.keyboard.press("Meta+BracketLeft");
+  await expect(page.locator("#form-day")).toHaveText("Monday, Oct 5");
+  await expect(start).toHaveValue("14:00");
+
+  await page.keyboard.press("Alt+Digit1");
+  await page.getByRole("button", { name: "Save" }).click();
+  const [draft] = await invoked(page, "save_entry");
+  expect(draft).toMatchObject({ id: null, date: "2026-10-05", start_time: "14:00" });
+  // The list goes to the entry's day.
+  await expect(page.getByRole("tab", { name: /Monday, Oct 5/ })).toHaveAttribute("aria-selected", "true");
+});
+
+test("an edited entry moves to another day with its times", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("form", { name: "Edit time entry Friday, Oct 9" })).toBeVisible();
+  await page.keyboard.press("Meta+BracketLeft");
+  await page.keyboard.press("Meta+BracketLeft");
+  await expect(page.locator("#form-day")).toHaveText("Wednesday, Oct 7");
+  await expect(page.getByRole("textbox", { name: "Start" })).toHaveValue("09:00");
+  await page.getByRole("button", { name: "Save" }).click();
+  const [draft] = await invoked(page, "save_entry");
+  expect(draft).toMatchObject({ id: "e1", date: "2026-10-07", start_time: "09:00", duration: "1:30" });
+  expect(await invoked(page, "prepare_form")).toHaveLength(1);
+});
+
+test("a running timer keeps its day", async ({ page }) => {
+  await open(
+    page,
+    withFriday(signedIn(), [entry({ id: "run", start_label: "09:00", end_label: null, running: true, duration_seconds: 600 })]),
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Edit running timer" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previous day" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Next day" })).toBeDisabled();
+  await page.keyboard.press("Meta+BracketLeft");
+  await expect(page.locator("#form-day")).toHaveText("Friday, Oct 9");
 });
 
 test("the panel shown from the list goes back to today", async ({ page }) => {

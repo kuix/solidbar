@@ -17,7 +17,7 @@ Solidbar is not an official solidtime product.
 ## Features
 
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
-- **Fast entry.** `N`, pick a recent project with `⌘1`–`⌘3` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. The project list starts with the three most recently used, then groups projects under their clients, each with its tasks. New entries continue where the day's last entry ended.
+- **Fast entry.** `N`, pick a recent project with `⌘1`–`⌘3` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. The project list starts with the three most recently used, then groups projects under their clients, each with its tasks. New entries continue where the day's last entry ended; the form's header moves an entry to another day (`⌘[` / `⌘]`).
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
 - **Simple timer.** `S` continues the selected entry (or stops the running one); `⌘↩` in the entry form starts one, from an earlier start time too. Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
@@ -103,6 +103,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `⌘O` | Change the organization (in Settings) |
 | | `⎋` | Close |
 | Entry form | `⌘1`–`⌘3` | Recent project |
+| | `⌘[` `⌘]` | The day before / after |
 | | `⌥1`–`⌥8` | Whole hours |
 | | `Space` or type | Open the project list (typing searches) |
 | | `↑` `↓` in a time | 15 minutes earlier/later (`⇧` for an hour) |

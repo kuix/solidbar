@@ -1,5 +1,6 @@
 //! Text for durations and entries, on screen and for VoiceOver.
 
+use jiff::civil::Date;
 use solidbar_shared::group::EntryGroup;
 use solidbar_shared::update::{UpdateState, UpdateView};
 use solidbar_shared::view::{EntryKind, EntryView};
@@ -45,6 +46,15 @@ pub fn project_title(entry: &EntryView) -> String {
 pub fn task_title(entry: &EntryView) -> Option<&str> {
     let has_project = entry.kind == EntryKind::Work && entry.project_name.is_some();
     entry.task_name.as_deref().filter(|_| has_project)
+}
+
+/// `Tuesday, Oct 13`, with the year when it isn't this one: `Wednesday, Dec 31, 2025`.
+pub fn day_title(date: Date, today: Option<Date>) -> String {
+    if today.is_none_or(|today| today.year() == date.year()) {
+        date.strftime("%A, %b %-d").to_string()
+    } else {
+        date.strftime("%A, %b %-d, %Y").to_string()
+    }
 }
 
 /// Everything a screen reader needs about a row in one sentence.
@@ -213,6 +223,17 @@ mod tests {
         assert_eq!(task_title(&without_project), None);
         assert_eq!(work_title(&without_project), "No project");
         assert_eq!(work_title(&entry("b", 60)), "Design system");
+    }
+
+    #[test]
+    fn day_titles_name_other_years() {
+        use jiff::civil::date;
+        let today = Some(date(2026, 10, 13));
+        assert_eq!(day_title(date(2026, 10, 13), today), "Tuesday, Oct 13");
+        assert_eq!(
+            day_title(date(2025, 12, 31), today),
+            "Wednesday, Dec 31, 2025"
+        );
     }
 
     #[test]

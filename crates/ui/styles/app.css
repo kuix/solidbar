@@ -939,11 +939,6 @@ code {
   font-weight: 600;
 }
 
-.form-day {
-  color: var(--text-secondary);
-  font-weight: 400;
-}
-
 .work-picker {
   position: relative;
 }
