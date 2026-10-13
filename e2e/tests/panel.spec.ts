@@ -109,8 +109,13 @@ test("typing on the project picker searches; Enter picks, then saves", async ({ 
   const picker = page.getByRole("button", { name: "Project and task" });
   await expect(picker).toHaveAttribute("aria-expanded", "true");
   const listbox = page.getByRole("listbox", { name: "Projects and tasks" });
-  await expect(listbox.getByRole("option")).toHaveCount(1);
-  await expect(search).toHaveAttribute("aria-activedescendant", "work-option-0");
+  // The task is listed under its client and project, and the highlight starts on it.
+  await expect(listbox.locator(".group-heading")).toHaveText(["Kuix"]);
+  await expect(listbox.getByRole("option")).toHaveCount(2);
+  await expect(listbox.getByRole("option").nth(1)).toHaveText("Header");
+  await expect(search).toHaveAttribute("aria-activedescendant", "work-option-1");
+  await expect(page.locator("#work-option-1")).toHaveAccessibleName("Design system › Header · Kuix");
+  await expect(page.getByText("1 result", { exact: true })).toBeAttached();
   await page.screenshot({ path: "screenshots/form-picker.png" });
   await expectAccessible(page);
 

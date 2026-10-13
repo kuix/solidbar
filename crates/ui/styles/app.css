@@ -983,16 +983,30 @@ code {
   background: var(--field);
 }
 
+/* A long choice wraps onto a second line rather than losing its task. */
 .select-button .value {
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
-.select-button .client,
-.listbox .client {
+/* The dot stays on the first line. */
+.select-button > .dot,
+.listbox li > .dot {
+  align-self: flex-start;
+  margin-top: calc((1.3em - 8px) / 2);
+}
+
+.listbox li > .kind-icon {
+  align-self: flex-start;
+  margin-top: calc((1.3em - 13px) / 2);
+}
+
+.select-button .client {
   color: var(--text-secondary);
 }
 
@@ -1031,7 +1045,9 @@ code {
 
 .listbox .current {
   display: grid;
+  align-items: center;
   width: 15px;
+  height: 1.3em;
 }
 
 .listbox li.empty {
@@ -1040,10 +1056,17 @@ code {
 
 .listbox li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 4px 8px;
   border-radius: 5px;
+  line-height: 1.3;
+}
+
+/* Tasks line up with their project's name, past its dot, and are a shade lighter. */
+.listbox li.task {
+  padding-left: 24px;
+  color: var(--text-secondary);
 }
 
 .listbox li.active {
@@ -1051,16 +1074,30 @@ code {
   color: var(--on-accent);
 }
 
-.listbox li.active .client {
-  color: inherit;
-  opacity: 0.85;
+/* Like a section of a macOS menu: the client over its projects. */
+.listbox li.group-heading {
+  display: block;
+  padding: 8px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.listbox li.group-heading:first-child {
+  padding-top: 2px;
+}
+
+.listbox li.divider {
+  height: 1px;
+  margin: 4px 8px;
+  padding: 0;
+  background: var(--separator);
 }
 
 .option-label {
   flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chips {

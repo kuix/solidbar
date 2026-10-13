@@ -177,6 +177,9 @@ pub struct WorkOption {
     pub task_id: Option<String>,
     /// `Project › Task`, or `Project`, or `No project`.
     pub label: String,
+    /// The task's own name, which the picker lists under its project.
+    #[serde(default)]
+    pub task_name: Option<String>,
     pub client_name: Option<String>,
     pub color: Option<String>,
     /// Default for the billable switch.

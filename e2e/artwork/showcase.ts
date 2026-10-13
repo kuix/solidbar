@@ -37,13 +37,14 @@ export function showcase(): Fixture {
   week.total_seconds = week.days.reduce((sum: number, day: any) => sum + day.total_seconds, 0);
 
   const option = (project_id: string | null, task_id: string | null, label: string, client_name: string | null, color: string | null) => ({
-    project_id, task_id, label, client_name, color, billable: client_name !== null,
+    project_id, task_id, label, task_name: task_id && label.split(" › ")[1], client_name, color, billable: client_name !== null,
   });
   fixture.catalog = {
     options: [
       option("p1", null, "Design system", "Kuix", "#ef5350"),
       option("p1", "t2", "Design system › Footer", "Kuix", "#ef5350"),
       option("p1", "t1", "Design system › Header", "Kuix", "#ef5350"),
+      option("p5", null, "Internal", null, "#ffa726"),
       option("p5", "t6", "Internal › Planning", null, "#ffa726"),
       option("p4", null, "Solidbar", null, "#7c6cf2"),
       option("p4", "t4", "Solidbar › README", null, "#7c6cf2"),

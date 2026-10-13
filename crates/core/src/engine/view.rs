@@ -367,6 +367,7 @@ fn work_option(
         project_id: Some(project.id.clone()),
         task_id: task.map(|task| task.id.clone()),
         label,
+        task_name: task.map(|task| task.name.clone()),
         client_name: project
             .client_id
             .as_deref()
@@ -383,6 +384,7 @@ fn no_project_option() -> WorkOption {
         project_id: None,
         task_id: None,
         label: "No project".to_owned(),
+        task_name: None,
         client_name: None,
         color: None,
         billable: false,
@@ -665,6 +667,8 @@ mod tests {
         );
         assert!(catalog.options[1].billable);
         assert_eq!(catalog.options[1].client_name.as_deref(), Some("Kuix"));
+        assert_eq!(catalog.options[1].task_name, None);
+        assert_eq!(catalog.options[2].task_name.as_deref(), Some("Header"));
         // The archived project drops out of the recents.
         let recents: Vec<_> = catalog
             .recents

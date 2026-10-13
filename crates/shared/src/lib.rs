@@ -9,6 +9,7 @@ pub mod fuzzy;
 pub mod group;
 pub mod instance;
 pub mod ipc;
+pub mod picker;
 pub mod settings;
 pub mod shortcuts;
 pub mod update;

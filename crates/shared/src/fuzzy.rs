@@ -26,19 +26,6 @@ fn word_score(word: &str, text: &str) -> Option<u32> {
         .then_some(10)
 }
 
-/// Indices of `labels` matching `query`, best first; ties keep their original order.
-pub fn rank<'a>(query: &str, labels: impl IntoIterator<Item = &'a str>) -> Vec<usize> {
-    let mut scored: Vec<(usize, u32)> = labels
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, label)| score(query, label).map(|score| (index, score)))
-        .collect();
-    scored.sort_by(|(left_index, left), (right_index, right)| {
-        right.cmp(left).then(left_index.cmp(right_index))
-    });
-    scored.into_iter().map(|(index, _)| index).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,14 +43,10 @@ mod tests {
 
     #[test]
     fn word_starts_beat_substrings_beat_subsequences() {
-        let labels = [
-            "Admin › Easysync",
-            "Design system",
-            "Kuix › Dsgn review",
-            "Sys",
-        ];
-        assert_eq!(rank("sys", labels), vec![1, 3, 0]);
-        assert_eq!(rank("dsgn", labels), vec![2, 1]);
+        assert_eq!(score("sys", "Design system"), Some(100));
+        assert_eq!(score("sys", "Admin › Easysync"), Some(60));
+        assert_eq!(score("dsgn", "Design system"), Some(10));
+        assert_eq!(score("sys", "Kuix › Dsgn review"), None);
     }
 
     #[test]

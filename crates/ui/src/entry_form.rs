@@ -4,11 +4,11 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use solidbar_shared::clock::Time;
 use solidbar_shared::duration::parse_minutes;
-use solidbar_shared::fuzzy;
 use solidbar_shared::ipc::{EntryDraft, SaveEntry};
+use solidbar_shared::picker;
 use solidbar_shared::view::{EntryKind, FormInit, WorkOption};
 use wasm_bindgen::JsCast;
-use web_sys::KeyboardEvent;
+use web_sys::{KeyboardEvent, MouseEvent};
 
 use crate::icons;
 use crate::ipc::call;
@@ -451,40 +451,27 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                     kind,
                     project_id,
                     task_id: None,
+                    task_name: None,
                     client_name: None,
                     color: None,
                     billable: false,
                 }
             })
     });
-    let matches = Memo::new(move |_| {
+    let listing = Memo::new(move |_| {
         let query = query.get();
-        options.with(|options| {
-            let haystacks: Vec<String> = options
-                .iter()
-                .map(|option| match &option.client_name {
-                    Some(client) => format!("{} {client}", option.label),
-                    None => option.label.clone(),
-                })
-                .collect();
-            fuzzy::rank(&query, haystacks.iter().map(String::as_str))
-                .into_iter()
-                .take(50)
-                .map(|index| options[index].clone())
-                .collect::<Vec<_>>()
-        })
+        options.with(|options| picker::list(&query, options))
     });
 
     let open_with = move |text: String| {
         query.set(text.clone());
-        // Without a search, start on the current choice.
-        let start = if text.is_empty() {
-            matches
-                .with_untracked(|matches| matches.iter().position(is_selected))
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        // Without a search, start on the current choice; with one, on the best match.
+        let start = listing.with_untracked(|listing| {
+            let current = text
+                .is_empty()
+                .then(|| listing.options.iter().position(is_selected));
+            current.flatten().or(listing.best).unwrap_or(0)
+        });
         active.set(start);
         open.set(true);
         // Show the list and focus its search field right away rather than after the next
@@ -521,7 +508,8 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
         }
     });
 
-    // Keep the highlighted option visible while moving through a long list.
+    // Keep the highlighted option visible while moving through a long list, with the client
+    // over it when it's the client's first.
     Effect::new(move |_| {
         if !open.get() {
             return;
@@ -531,6 +519,12 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             if let Some(element) = document().get_element_by_id(&id) {
                 let options = web_sys::ScrollIntoViewOptions::new();
                 options.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                if let Some(heading) = element
+                    .previous_element_sibling()
+                    .filter(|sibling| sibling.class_list().contains("group-heading"))
+                {
+                    heading.scroll_into_view_with_scroll_into_view_options(&options);
+                }
                 element.scroll_into_view_with_scroll_into_view_options(&options);
             }
         });
@@ -567,7 +561,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             return;
         }
         let keys = Keys::of(&event);
-        let count = matches.with_untracked(Vec::len);
+        let count = listing.with_untracked(|listing| listing.options.len());
         let handled = if keys.is("ArrowDown") {
             active.update(|index| *index = (*index + 1).min(count.saturating_sub(1)));
             true
@@ -575,8 +569,8 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             active.update(|index| *index = index.saturating_sub(1));
             true
         } else if keys.is("Enter") {
-            if let Some(option) =
-                matches.with_untracked(|matches| matches.get(active.get_untracked()).cloned())
+            if let Some(option) = listing
+                .with_untracked(|listing| listing.options.get(active.get_untracked()).cloned())
             {
                 choose(option);
             }
@@ -641,7 +635,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                     aria-expanded=move || open.get().to_string()
                     aria-controls="work-listbox"
                     aria-activedescendant=move || {
-                        (open.get() && matches.with(|matches| !matches.is_empty()))
+                        (open.get() && listing.with(|listing| !listing.options.is_empty()))
                             .then(|| format!("work-option-{}", active.get()))
                     }
                     placeholder="Search projects, tasks and clients"
@@ -650,7 +644,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                     prop:value=query
                     on:input=move |event| {
                         query.set(event_target_value(&event));
-                        active.set(0);
+                        active.set(listing.with_untracked(|listing| listing.best.unwrap_or(0)));
                     }
                     on:blur=move |_| {
                         if open.get_untracked() {
@@ -661,43 +655,83 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                 />
                 <ul id="work-listbox" role="listbox" aria-label="Projects and tasks" class="listbox">
                     <For
-                        each=move || matches.get().into_iter().enumerate()
-                        key=|(index, option)| (*index, option.clone())
+                        each=move || listing.get().rows.into_iter().enumerate()
+                        key=|(index, row)| (*index, row.clone())
                         let:item
                     >
                         {
-                            let (index, option) = item;
-                            let marker = option_marker(&option);
-                            let label = option.label.clone();
-                            let client = option.client_name.clone();
-                            let current = is_selected(&option);
-                            view! {
-                                <li
-                                    role="option"
-                                    id=format!("work-option-{index}")
-                                    class:active=move || active.get() == index
-                                    aria-selected=move || (active.get() == index).to_string()
-                                    on:mousedown=|event| event.prevent_default()
-                                    on:click=move |_| choose(option.clone())
-                                >
-                                    {marker}
-                                    <span class="option-label">{label}</span>
-                                    {client.map(|client| view! { <span class="client">{client}</span> })}
-                                    <span class="current" aria-hidden="true">
-                                        {current.then(icons::check)}
-                                    </span>
-                                </li>
+                            // Clicks on the list keep the focus in the search field.
+                            let keep_focus = |event: MouseEvent| event.prevent_default();
+                            match item.1 {
+                                picker::Row::Client(client) => {
+                                    // Each option names its client, so the heading is only seen.
+                                    view! {
+                                        <li
+                                            class="group-heading"
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            on:mousedown=keep_focus
+                                        >
+                                            {client.unwrap_or_else(|| "No client".to_owned())}
+                                        </li>
+                                    }
+                                        .into_any()
+                                }
+                                picker::Row::Divider => {
+                                    view! {
+                                        <li
+                                            class="divider"
+                                            role="presentation"
+                                            aria-hidden="true"
+                                            on:mousedown=keep_focus
+                                        ></li>
+                                    }
+                                        .into_any()
+                                }
+                                picker::Row::Option { position, option, task } => {
+                                    // A task shows only its name, under its project.
+                                    let marker = (!task).then(|| option_marker(&option));
+                                    let name = match (&option.task_name, task) {
+                                        (Some(name), true) => name.clone(),
+                                        _ => option.label.clone(),
+                                    };
+                                    let spoken = match &option.client_name {
+                                        Some(client) => format!("{} · {client}", option.label),
+                                        None => option.label.clone(),
+                                    };
+                                    let current = is_selected(&option);
+                                    view! {
+                                        <li
+                                            role="option"
+                                            id=format!("work-option-{position}")
+                                            class:task=task
+                                            class:active=move || active.get() == position
+                                            aria-selected=move || (active.get() == position).to_string()
+                                            aria-label=spoken
+                                            on:mousedown=keep_focus
+                                            on:click=move |_| choose(option.clone())
+                                        >
+                                            {marker}
+                                            <span class="option-label">{name}</span>
+                                            <span class="current" aria-hidden="true">
+                                                {current.then(icons::check)}
+                                            </span>
+                                        </li>
+                                    }
+                                        .into_any()
+                                }
                             }
                         }
                     </For>
-                    <Show when=move || matches.with(Vec::is_empty)>
+                    <Show when=move || listing.with(|listing| listing.options.is_empty())>
                         <li class="empty" role="presentation">"No matching projects"</li>
                     </Show>
                 </ul>
                 <p class="sr-only" aria-live="polite">
                     {move || {
                         if open.get() {
-                            match matches.with(Vec::len) {
+                            // A project listed for its tasks isn't a result.
+                            match listing.with(|listing| listing.matched) {
                                 0 => "No matching projects".to_owned(),
                                 1 => "1 result".to_owned(),
                                 count => format!("{count} results"),

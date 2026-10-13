@@ -57,12 +57,12 @@ const catalog = {
   options: [
     { project_id: "p2", task_id: null, label: "Admin", client_name: null, color: "#42a5f5", billable: false },
     { project_id: "p1", task_id: null, label: "Design system", client_name: "Kuix", color: "#ef5350", billable: true },
-    { project_id: "p1", task_id: "t1", label: "Design system › Header", client_name: "Kuix", color: "#ef5350", billable: true },
+    { project_id: "p1", task_id: "t1", label: "Design system › Header", task_name: "Header", client_name: "Kuix", color: "#ef5350", billable: true },
     { project_id: "p3", task_id: null, label: "Support", client_name: "ACME", color: "#66bb6a", billable: true },
     { project_id: null, task_id: null, label: "No project", client_name: null, color: null, billable: false },
   ],
   recents: [
-    { project_id: "p1", task_id: "t1", label: "Design system › Header", client_name: "Kuix", color: "#ef5350", billable: true },
+    { project_id: "p1", task_id: "t1", label: "Design system › Header", task_name: "Header", client_name: "Kuix", color: "#ef5350", billable: true },
     { project_id: "p3", task_id: null, label: "Support", client_name: "ACME", color: "#66bb6a", billable: true },
   ],
 };
