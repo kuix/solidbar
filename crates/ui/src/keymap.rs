@@ -152,6 +152,24 @@ pub fn focus_element(id: &str) -> bool {
         .is_some_and(|element| element.focus().is_ok())
 }
 
+/// Focuses the entry form's field that had the focus before the panel went away, or else the
+/// project and task.
+pub fn refocus_form() {
+    let active = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.active_element())
+        .filter(|element| matches!(element.closest(".entry-form"), Ok(Some(_))))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok());
+    match active {
+        Some(element) => {
+            let _ = element.focus();
+        }
+        None => {
+            focus_element("work-button");
+        }
+    }
+}
+
 /// The panel-wide shortcuts. Components handle their own keys first (e.g. the combobox's
 /// arrows) and call `preventDefault` when they do.
 pub fn install(store: Store) {

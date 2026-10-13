@@ -297,9 +297,29 @@ impl Store {
     }
 
     pub fn close_form(self) {
+        let date = self
+            .form
+            .with_untracked(|form| form.as_ref()?.date.parse::<Date>().ok());
         self.screen.set(Screen::List);
         self.form.set(None);
-        self.focus.set(Some(Focus::Entry { date: None }));
+        // Opening the panel went back to today; a form it kept returns to its own day.
+        match date.filter(|date| Some(*date) != self.selected_date()) {
+            Some(date) => {
+                let row = self.selected_row.get_untracked();
+                self.select_date(date, Toward::Entries);
+                self.selected_row.set(row);
+            }
+            None => self.focus.set(Some(Focus::Entry { date: None })),
+        }
+    }
+
+    /// Whether the form is open for a new entry, rather than for changing one.
+    fn writing_new_entry(&self) -> bool {
+        self.screen.get_untracked() == Screen::Form
+            && self.form.with_untracked(|form| {
+                form.as_ref()
+                    .is_some_and(|form| form.entry_id.is_none() && form.group_ids.is_empty())
+            })
     }
 
     /// The gear opens Settings, and closes it again like ⌘, and Escape do.
@@ -515,6 +535,15 @@ impl Store {
             });
             return;
         }
+        // An open form keeps what was typed into it, so a look at another app loses nothing.
+        let keep_form = match reason {
+            ShowReason::NewEntry => self.writing_new_entry(),
+            ShowReason::Toggle => self.screen.get_untracked() == Screen::Form,
+        };
+        if keep_form {
+            request_animation_frame(crate::keymap::refocus_form);
+            return;
+        }
         match reason {
             ShowReason::NewEntry => {
                 if let Some(today) = self.today() {
@@ -522,9 +551,6 @@ impl Store {
                 }
             }
             ShowReason::Toggle => {
-                if self.screen.get_untracked() == Screen::Form {
-                    self.close_form();
-                }
                 self.selected_row.set(None);
                 self.focus.set(Some(Focus::Entry { date: None }));
             }

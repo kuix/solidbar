@@ -165,6 +165,13 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
 
     (window as any).__calls = calls;
     (window as any).__emit = emit;
+    // Like the panel: shown, it goes back to today (`Engine::panel_opened`).
+    (window as any).__showPanel = (reason: "toggle" | "new_entry") => {
+      emit("panel://shown", reason);
+      state.app.selected_date = state.app.today;
+      changed();
+    };
+    (window as any).__hidePanel = () => emit("panel://hidden", null);
     (window as any).__TAURI__ = {
       core: {
         invoke: async (cmd: string, payload: any) => {

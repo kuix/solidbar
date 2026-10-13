@@ -171,6 +171,43 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   await expect(page.getByRole("tablist", { name: "Days of the week" })).toBeVisible();
 });
 
+test("a form keeps what was typed while the panel is away", async ({ page }) => {
+  await open(page);
+  // On another day than today, which the panel goes back to when it's shown.
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("heading", { name: "Thursday, Oct 8" })).toBeVisible();
+  await page.keyboard.press("Meta+KeyN");
+  const notes = page.getByRole("textbox", { name: "Notes" });
+  await notes.focus();
+  await page.keyboard.type("Ticket review");
+
+  // A click on another app hides the panel; the menu bar icon brings it back.
+  await page.evaluate(() => (window as any).__hidePanel());
+  await page.evaluate(() => (window as any).__showPanel("toggle"));
+  await expect(page.getByRole("heading", { name: /New time entry.*Thursday, Oct 8/ })).toBeVisible();
+  await expect(notes).toHaveValue("Ticket review");
+  await expect(notes).toBeFocused();
+  // ⌥⌘N doesn't start the new entry over either.
+  await page.evaluate(() => (window as any).__showPanel("new_entry"));
+  await expect(notes).toHaveValue("Ticket review");
+  expect(await invoked(page, "prepare_form")).toHaveLength(1);
+
+  // Leaving the form returns to its day.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Thursday, Oct 8" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Thursday, Oct 8/ })).toHaveAttribute("aria-selected", "true");
+});
+
+test("the panel shown from the list goes back to today", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByRole("heading", { name: "Thursday, Oct 8" })).toBeVisible();
+  await page.evaluate(() => (window as any).__hidePanel());
+  await page.evaluate(() => (window as any).__showPanel("toggle"));
+  await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
+  await expect(page.locator("#entry-e1")).toBeFocused();
+});
+
 test("projects created elsewhere show up while the form is open", async ({ page }) => {
   await open(page);
   await page.keyboard.press("Meta+KeyN");
