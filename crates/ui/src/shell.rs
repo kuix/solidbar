@@ -35,37 +35,34 @@ pub fn Shell() -> impl IntoView {
         week.get()?.days.into_iter().find(|day| day.date == date)
     });
     let screen = Memo::new(move |_| store.screen.get());
-    let in_settings = Memo::new(move |_| screen.get() == Screen::Settings);
 
     view! {
         <div class="shell">
             <Header week />
             <Banners />
-            // Settings has nothing to do with the days, so it takes the week strip's place too.
-            <Show
-                when=move || !in_settings.get()
-                fallback=|| view! { <div class="settings-panel"><Settings /></div> }
-            >
-                <WeekStrip week selected_date />
-                <div
-                    class="day-panel"
-                    class:with-form=move || screen.get() == Screen::Form
-                    id="day-panel"
-                    role="tabpanel"
-                    aria-labelledby=move || format!("tab-{}", selected_date.get())
-                >
-                    {move || match screen.get() {
-                        Screen::Form => {
-                            store
-                                .form
-                                .get_untracked()
-                                .map(|init| view! { <EntryForm init /> }.into_any())
-                                .unwrap_or_else(|| ().into_any())
-                        }
-                        _ => view! { <DayList day /> }.into_any(),
-                    }}
-                </div>
-            </Show>
+            // Only the list is about the days: the form and Settings take the week strip's
+            // place too, and the form's heading names its day.
+            {move || match screen.get() {
+                Screen::List => {
+                    view! {
+                        <WeekStrip week selected_date />
+                        <div
+                            class="day-panel"
+                            id="day-panel"
+                            role="tabpanel"
+                            aria-labelledby=move || format!("tab-{}", selected_date.get())
+                        >
+                            <DayList day />
+                        </div>
+                    }
+                        .into_any()
+                }
+                Screen::Form => {
+                    let form = store.form.get_untracked().map(|init| view! { <EntryForm init /> });
+                    view! { <div class="form-panel">{form}</div> }.into_any()
+                }
+                Screen::Settings => view! { <div class="settings-panel"><Settings /></div> }.into_any(),
+            }}
             <Show when=move || screen.get() == Screen::List>
                 <Footer week />
             </Show>

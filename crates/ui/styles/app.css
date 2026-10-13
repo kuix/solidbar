@@ -580,7 +580,8 @@ code {
 /* ---------------------------------------------------------------- Day */
 
 .day-panel,
-.settings-panel {
+.settings-panel,
+.form-panel {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -588,7 +589,8 @@ code {
   position: relative;
 }
 
-.settings-panel {
+.settings-panel,
+.form-panel {
   border-top: 1px solid var(--separator);
 }
 
@@ -1161,7 +1163,7 @@ code {
 
 /* The form fills the panel: its fields scroll, the buttons stay at the bottom (like the list's
    footer), so nothing slides under them. */
-.day-panel.with-form {
+.form-panel {
   display: flex;
   flex-direction: column;
   padding: 0;

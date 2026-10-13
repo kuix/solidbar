@@ -156,6 +156,8 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   await expect(picker).toBeFocused();
   await expect(picker).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("heading", { name: /New time entry/ })).toBeVisible();
+  // The form's heading names the day, so the week strip makes room for it.
+  await expect(page.getByRole("tablist")).toHaveCount(0);
 
   await picker.click();
   await options.filter({ hasText: "Support" }).click();
@@ -166,6 +168,7 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
   await expect(page.locator("#entry-e1")).toBeFocused();
+  await expect(page.getByRole("tablist", { name: "Days of the week" })).toBeVisible();
 });
 
 test("projects created elsewhere show up while the form is open", async ({ page }) => {
