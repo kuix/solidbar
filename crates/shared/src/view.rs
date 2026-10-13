@@ -189,7 +189,8 @@ pub struct WorkOption {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Catalog {
     pub options: Vec<WorkOption>,
-    /// Up to five recently used pairs, most recent first (⌘1–⌘5).
+    /// Up to five recently used pairs, most recent first. The project list starts with the
+    /// first three (⌘1–⌘3).
     pub recents: Vec<WorkOption>,
 }
 

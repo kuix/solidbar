@@ -188,10 +188,18 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                 _ => false,
             }
         } else if keys.meta && !keys.alt && !keys.control && keys.digit().is_some() {
+            // The recent choices the project list starts with.
             let index = keys.digit().unwrap_or_default() as usize;
-            match recents.get_untracked().get(index.wrapping_sub(1)) {
+            let recent = recents.with_untracked(|recents| {
+                recents
+                    .iter()
+                    .take(picker::RECENTS)
+                    .nth(index.wrapping_sub(1))
+                    .cloned()
+            });
+            match recent {
                 Some(option) => {
-                    pick.run(option.clone());
+                    pick.run(option);
                     true
                 }
                 None => false,
@@ -242,17 +250,6 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                 <h2 id="form-title">
                     {title} <span class="form-day">{format!(" · {day_label}")}</span>
                 </h2>
-                <Show when=move || recents.with(|recents| !recents.is_empty())>
-                    <div class="recents" role="group" aria-label="Recent projects">
-                        <For
-                            each=move || recents.get().into_iter().enumerate()
-                            key=|(index, option)| (*index, option.clone())
-                            let:item
-                        >
-                            <RecentButton number=item.0 + 1 option=item.1 pick />
-                        </For>
-                    </div>
-                </Show>
                 {group_note.map(|note| view! { <p class="group-note">{note}</p> })}
                 <WorkPicker work pick />
                 <label for="notes">"Notes"</label>
@@ -363,29 +360,6 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     }
 }
 
-#[component]
-fn RecentButton(number: usize, option: WorkOption, pick: Callback<WorkOption>) -> impl IntoView {
-    let color = option
-        .color
-        .clone()
-        .unwrap_or_else(|| "var(--no-project)".to_owned());
-    let label = option.label.clone();
-    let title = format!("{label} (⌘{number})");
-    view! {
-        <button
-            type="button"
-            class="recent"
-            aria-keyshortcuts=format!("Meta+{number}")
-            title=title
-            on:click=move |_| pick.run(option.clone())
-        >
-            <kbd aria-hidden="true">{format!("⌘{number}")}</kbd>
-            <span class="dot" style=format!("background:{color}") aria-hidden="true"></span>
-            <span class="recent-label">{label}</span>
-        </button>
-    }
-}
-
 /// Puts the open project list under its button. The list is `position: fixed` so the
 /// scrolling form body doesn't clip it; it follows the button when the body scrolls.
 fn place_work_popup() {
@@ -459,16 +433,20 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
     });
     let listing = Memo::new(move |_| {
         let query = query.get();
-        options.with(|options| picker::list(&query, options))
+        store
+            .catalog
+            .with(|catalog| picker::list(&query, &catalog.options, &catalog.recents))
     });
 
     let open_with = move |text: String| {
         query.set(text.clone());
-        // Without a search, start on the current choice; with one, on the best match.
+        // Without a search, start on the current choice, or on the recent choices at the top
+        // while there's none; with a search, on the best match.
+        let chosen =
+            work.with_untracked(|work| work.project_id.is_some() || work.kind == EntryKind::Break);
         let start = listing.with_untracked(|listing| {
-            let current = text
-                .is_empty()
-                .then(|| listing.options.iter().position(is_selected));
+            let current =
+                (text.is_empty() && chosen).then(|| listing.options.iter().position(is_selected));
             current.flatten().or(listing.best).unwrap_or(0)
         });
         active.set(start);
@@ -499,7 +477,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
         close(true);
     };
 
-    // A recent pair picked with ⌘1–⌘5 while the list is open closes it.
+    // A recent pair picked with ⌘1–⌘3 while the list is open closes it.
     Effect::new(move |previous: Option<()>| {
         work.track();
         if previous.is_some() && open.get_untracked() {
@@ -661,20 +639,24 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                         {
                             // Clicks on the list keep the focus in the search field.
                             let keep_focus = |event: MouseEvent| event.prevent_default();
+                            // Each option names its client, so the headings are only seen.
+                            let heading = move |text: String| {
+                                view! {
+                                    <li
+                                        class="group-heading"
+                                        role="presentation"
+                                        aria-hidden="true"
+                                        on:mousedown=keep_focus
+                                    >
+                                        {text}
+                                    </li>
+                                }
+                                    .into_any()
+                            };
                             match item.1 {
+                                picker::Row::Recents => heading("Recently used".to_owned()),
                                 picker::Row::Client(client) => {
-                                    // Each option names its client, so the heading is only seen.
-                                    view! {
-                                        <li
-                                            class="group-heading"
-                                            role="presentation"
-                                            aria-hidden="true"
-                                            on:mousedown=keep_focus
-                                        >
-                                            {client.unwrap_or_else(|| "No client".to_owned())}
-                                        </li>
-                                    }
-                                        .into_any()
+                                    heading(client.unwrap_or_else(|| "No client".to_owned()))
                                 }
                                 picker::Row::Divider => {
                                     view! {
@@ -687,12 +669,23 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                                     }
                                         .into_any()
                                 }
-                                picker::Row::Option { position, option, task } => {
-                                    // A task shows only its name, under its project.
+                                picker::Row::Option { position, option, task, recent } => {
+                                    // A task shows only its name, under its project; elsewhere
+                                    // (as a recent choice) it follows its project, lighter.
                                     let marker = (!task).then(|| option_marker(&option));
                                     let name = match (&option.task_name, task) {
-                                        (Some(name), true) => name.clone(),
-                                        _ => option.label.clone(),
+                                        (Some(name), true) => name.clone().into_any(),
+                                        _ => {
+                                            let (project, task) = split_label(&option);
+                                            view! {
+                                                {project}
+                                                {task
+                                                    .map(|task| {
+                                                        view! { <span class="task">{format!(" › {task}")}</span> }
+                                                    })}
+                                            }
+                                                .into_any()
+                                        }
                                     };
                                     let spoken = match &option.client_name {
                                         Some(client) => format!("{} · {client}", option.label),
@@ -707,11 +700,20 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                                             class:active=move || active.get() == position
                                             aria-selected=move || (active.get() == position).to_string()
                                             aria-label=spoken
+                                            aria-keyshortcuts=recent.map(|number| format!("Meta+{number}"))
                                             on:mousedown=keep_focus
                                             on:click=move |_| choose(option.clone())
                                         >
                                             {marker}
                                             <span class="option-label">{name}</span>
+                                            {recent
+                                                .map(|number| {
+                                                    view! {
+                                                        <span class="shortcut" aria-hidden="true">
+                                                            {format!("⌘{number}")}
+                                                        </span>
+                                                    }
+                                                })}
                                             <span class="current" aria-hidden="true">
                                                 {current.then(icons::check)}
                                             </span>
@@ -742,6 +744,18 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                 </p>
             </div>
         </div>
+    }
+}
+
+/// `Project` and `Task` of a `Project › Task` choice, to show the task a shade lighter.
+fn split_label(option: &WorkOption) -> (String, Option<String>) {
+    let project = option
+        .task_name
+        .as_ref()
+        .and_then(|task| option.label.strip_suffix(&format!(" › {task}")));
+    match project {
+        Some(project) => (project.to_owned(), option.task_name.clone()),
+        None => (option.label.clone(), None),
     }
 }
 

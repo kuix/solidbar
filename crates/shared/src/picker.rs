@@ -1,5 +1,6 @@
 //! The project and task picker's list: what matches the search, grouped under clients and
-//! projects, so a row names only its task and the long names fit.
+//! projects, so a row names only its task and the long names fit. Without a search, the
+//! recently used choices come first.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -10,18 +11,26 @@ use crate::view::WorkOption;
 /// How many matches are listed at most.
 pub const LIMIT: usize = 200;
 
+/// How many recently used choices the list starts with; ⌘1–⌘3 pick them too.
+pub const RECENTS: usize = 3;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Row {
+    /// "Recently used", over the recent choices at the top.
+    Recents,
     /// A client's name over its projects; `None` over the projects without a client. There
     /// are no headings when no project has a client.
     Client(Option<String>),
-    /// Sets "No project" and "Break" apart from the projects.
+    /// Sets "No project" and "Break" apart from the projects, and the recent choices from
+    /// the projects when there are no client headings.
     Divider,
-    /// The `position`th of [`List::options`]. A task sits under its project.
+    /// The `position`th of [`List::options`]. A task sits under its project; a recent choice
+    /// (`recent` is its ⌘ number) is named whole.
     Option {
         position: usize,
         option: WorkOption,
         task: bool,
+        recent: Option<usize>,
     },
 }
 
@@ -49,8 +58,10 @@ struct Section<'a> {
 
 /// Lists the options matching `query`. Clients with better matches come first, then by name,
 /// and the projects without a client after them; projects and tasks keep the catalog's
-/// order among equal matches. "No project" and "Break" come last.
-pub fn list(query: &str, options: &[WorkOption]) -> List {
+/// order among equal matches. "No project" and "Break" come last. Without a search, the
+/// first [`RECENTS`] of `recents` come before everything, and the highlight starts on top.
+pub fn list(query: &str, options: &[WorkOption], recents: &[WorkOption]) -> List {
+    let browsing = query.split_whitespace().next().is_none();
     let scores: Vec<Option<u32>> = options
         .iter()
         .map(|option| match &option.client_name {
@@ -132,10 +143,25 @@ pub fn list(query: &str, options: &[WorkOption]) -> List {
             position: list.options.len(),
             option: options[index].clone(),
             task,
+            recent: None,
         });
         list.options.push(options[index].clone());
         listed.push(index);
     };
+    let recents = if browsing { recents } else { &[] };
+    for (number, option) in recents.iter().take(RECENTS).enumerate() {
+        if number == 0 {
+            list.rows.push(Row::Recents);
+        }
+        list.rows.push(Row::Option {
+            position: list.options.len(),
+            option: option.clone(),
+            task: false,
+            recent: Some(number + 1),
+        });
+        list.options.push(option.clone());
+    }
+    let after_recents = list.rows.len();
     let headings = sections.iter().any(|section| section.client.is_some());
     for section in &sections {
         if headings {
@@ -149,15 +175,24 @@ pub fn list(query: &str, options: &[WorkOption]) -> List {
             }
         }
     }
-    if !list.rows.is_empty() && !others.is_empty() {
+    if list.rows.len() > after_recents && !others.is_empty() {
         list.rows.push(Row::Divider);
     }
     for &other in &others {
         add(&mut list, other, false);
     }
+    // Without a client heading after them, a line ends the recent choices.
+    let next = list.rows.get(after_recents);
+    if after_recents > 0 && next.is_some_and(|row| !matches!(row, Row::Client(_))) {
+        list.rows.insert(after_recents, Row::Divider);
+    }
 
-    let top = matching.first().map(|&index| scores[index]);
-    list.best = top.and_then(|top| listed.iter().position(|&index| scores[index] == top));
+    list.best = if browsing {
+        (!list.options.is_empty()).then_some(0)
+    } else {
+        let top = matching.first().map(|&index| scores[index]);
+        top.and_then(|top| listed.iter().position(|&index| scores[index] == top))
+    };
     list
 }
 
@@ -223,11 +258,18 @@ mod tests {
         list.rows
             .iter()
             .map(|row| match row {
+                Row::Recents => "# Recently used".to_owned(),
                 Row::Client(Some(client)) => format!("# {client}"),
                 Row::Client(None) => "# No client".to_owned(),
                 Row::Divider => "---".to_owned(),
-                Row::Option { option, task, .. } => match (task, &option.task_name) {
-                    (true, Some(name)) => format!("  {name}"),
+                Row::Option {
+                    option,
+                    task,
+                    recent,
+                    ..
+                } => match (task, &option.task_name, recent) {
+                    (_, _, Some(number)) => format!("⌘{number} {}", option.label),
+                    (true, Some(name), _) => format!("  {name}"),
                     _ => option.label.clone(),
                 },
             })
@@ -236,7 +278,7 @@ mod tests {
 
     #[test]
     fn everything_is_grouped_under_clients_by_name() {
-        let list = list("", &catalog());
+        let list = list("", &catalog(), &[]);
         assert_eq!(
             rows(&list),
             [
@@ -261,7 +303,7 @@ mod tests {
 
     #[test]
     fn a_task_is_listed_under_its_project_and_the_highlight_starts_on_it() {
-        let list = list("deploy", &catalog());
+        let list = list("deploy", &catalog(), &[]);
         assert_eq!(
             rows(&list),
             ["# Allee Center", "Allee Support", "  Deployment"]
@@ -279,13 +321,13 @@ mod tests {
         ];
         // "port" starts a word in Portal, and is only inside one in Support.
         assert_eq!(
-            rows(&list("port", &options)),
+            rows(&list("port", &options, &[])),
             ["# Zed", "Portal", "# Acme", "Support"]
         );
 
         // A client's name finds all its projects.
         assert_eq!(
-            rows(&list("lavylites", &catalog())),
+            rows(&list("lavylites", &catalog(), &[])),
             [
                 "# Lavylites",
                 "Lavylites Support",
@@ -300,15 +342,62 @@ mod tests {
         let admin = project("p1", "Admin", None);
         let options = vec![admin.clone(), task(&admin, "t1", "Email"), no_project()];
         assert_eq!(
-            rows(&list("", &options)),
+            rows(&list("", &options, &[])),
             ["Admin", "  Email", "---", "No project"]
         );
-        assert_eq!(rows(&list("no", &options)), ["No project"]);
+        assert_eq!(rows(&list("no", &options, &[])), ["No project"]);
+    }
+
+    #[test]
+    fn without_a_search_the_list_starts_with_three_recent_choices() {
+        let options = catalog();
+        // Most recent first, as the backend sends them.
+        let recents = [&options[5], &options[0], &options[2], &options[6]].map(Clone::clone);
+        let list = list("", &options, &recents);
+        assert_eq!(
+            rows(&list)[..5],
+            [
+                "# Recently used",
+                "⌘1 Lavylites Support › Frontend development",
+                "⌘2 Admin",
+                "⌘3 Allee Support › Content Management",
+                "# Allee Center",
+            ]
+        );
+        // The recent choices are listed in their places too, and the highlight starts on top.
+        assert_eq!(list.options.len(), 3 + 8);
+        assert_eq!(list.matched, 8);
+        assert_eq!(list.best, Some(0));
+
+        // A search lists only what matches, without the recent choices.
+        assert_eq!(rows(&list_with("admin", &recents)), ["Admin"]);
+    }
+
+    #[test]
+    fn without_client_headings_a_line_ends_the_recent_choices() {
+        let admin = project("p1", "Admin", None);
+        let options = vec![admin.clone(), task(&admin, "t1", "Email"), no_project()];
+        assert_eq!(
+            rows(&list("", &options, &[options[1].clone()])),
+            [
+                "# Recently used",
+                "⌘1 Admin › Email",
+                "---",
+                "Admin",
+                "  Email",
+                "---",
+                "No project",
+            ]
+        );
+    }
+
+    fn list_with(query: &str, recents: &[WorkOption]) -> List {
+        list(query, &catalog(), recents)
     }
 
     #[test]
     fn nothing_matching_lists_nothing() {
-        let list = list("zzz", &catalog());
+        let list = list("zzz", &catalog(), &[]);
         assert_eq!(list, List::default());
     }
 }

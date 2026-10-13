@@ -39,7 +39,9 @@ test("new entry", async ({ page }) => {
   for (const scheme of ["light", "dark"] as const) {
     await open(page, scheme);
     await page.keyboard.press("Meta+KeyN");
-    await page.keyboard.type("de");
+    // The recent choices, then the clients' projects and tasks.
+    await expect(page.getByRole("button", { name: "Project and task" })).toBeFocused();
+    await page.keyboard.press("Space");
     await expect(page.getByRole("listbox", { name: "Projects and tasks" })).toBeVisible();
     await shoot(page, `new-entry-${scheme}.png`);
   }

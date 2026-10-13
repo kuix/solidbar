@@ -944,33 +944,6 @@ code {
   font-weight: 400;
 }
 
-.recents {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.recent {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 2px 8px 2px 6px;
-  font-size: 12px;
-}
-
-.recent kbd {
-  margin: 0;
-}
-
-.recent-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
-}
-
 .work-picker {
   position: relative;
 }
@@ -1075,6 +1048,21 @@ code {
 .listbox li.active {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* A recent choice's task, and its ⌘ number on the right, like a menu item's shortcut. */
+.listbox .option-label .task,
+.listbox .shortcut {
+  color: var(--text-secondary);
+}
+
+.listbox .shortcut {
+  font-variant-numeric: tabular-nums;
+}
+
+.listbox li.active .option-label .task,
+.listbox li.active .shortcut {
+  color: inherit;
 }
 
 /* Like a section of a macOS menu: the client over its projects. */

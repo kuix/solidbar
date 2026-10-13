@@ -145,11 +145,15 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   const search = page.getByRole("combobox", { name: "Search projects and tasks" });
   await expect(search).toBeFocused();
   await expect(search).toHaveValue("");
-  const options = page.getByRole("listbox", { name: "Projects and tasks" }).getByRole("option");
-  await expect(options).toHaveCount(5);
-  // It starts on the current choice.
+  const listbox = page.getByRole("listbox", { name: "Projects and tasks" });
+  const options = listbox.getByRole("option");
+  // The recent choices first, then everything.
+  await expect(listbox.locator(".group-heading").first()).toHaveText("Recently used");
+  await expect(options).toHaveCount(2 + 5);
+  // With nothing chosen yet, it starts on the most recent choice.
   const active = await search.getAttribute("aria-activedescendant");
-  await expect(page.locator(`#${active}`)).toContainText("No project");
+  await expect(page.locator(`#${active}`)).toHaveAccessibleName("Design system › Header · Kuix");
+  await expect(page.locator(`#${active}`)).toHaveAttribute("aria-keyshortcuts", "Meta+1");
 
   await page.keyboard.press("Escape");
   const picker = page.getByRole("button", { name: "Project and task" });
@@ -160,9 +164,14 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   await expect(page.getByRole("tablist")).toHaveCount(0);
 
   await picker.click();
-  await options.filter({ hasText: "Support" }).click();
+  await options.filter({ hasText: "Support" }).last().click();
   await expect(picker).toHaveAccessibleName("Project and task Support · ACME");
   await expect(picker).toBeFocused();
+  // Opened again, it starts on the current choice.
+  await page.keyboard.press("Space");
+  const current = await search.getAttribute("aria-activedescendant");
+  await expect(page.locator(`#${current}`)).toHaveAccessibleName("Support · ACME");
+  await page.keyboard.press("Escape");
 
   // Escape with the list closed leaves the form, and focus returns to the list.
   await page.keyboard.press("Escape");
@@ -231,12 +240,12 @@ test("projects created elsewhere show up while the form is open", async ({ page 
 
 test("the form's buttons stay at the bottom while its fields scroll", async ({ page }) => {
   // A shorter panel than usual, so the fields don't fit.
-  await page.setViewportSize({ width: 380, height: 440 });
+  await page.setViewportSize({ width: 380, height: 400 });
   await open(page);
   await page.keyboard.press("Meta+KeyN");
   const footer = page.locator(".form-footer");
   const pinned = (await footer.boundingBox())!;
-  expect(pinned.y + pinned.height).toBeCloseTo(440, 0);
+  expect(pinned.y + pinned.height).toBeCloseTo(400, 0);
 
   const body = page.locator(".form-body");
   expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
@@ -256,7 +265,9 @@ test("the form's buttons stay at the bottom while its fields scroll", async ({ p
   const button = (await page.getByRole("button", { name: "Project and task" }).boundingBox())!;
   const popup = (await page.locator("#work-popup").boundingBox())!;
   expect(popup.y).toBeCloseTo(button.y + button.height + 4, 0);
-  await expect(page.getByRole("listbox", { name: "Projects and tasks" }).getByRole("option").last()).toBeInViewport();
+  expect(popup.y + popup.height).toBeLessThanOrEqual(400);
+  const active = await page.getByRole("combobox", { name: "Search projects and tasks" }).getAttribute("aria-activedescendant");
+  await expect(page.locator(`#${active}`)).toBeInViewport({ ratio: 0.9 });
   await page.screenshot({ path: "screenshots/form-short.png" });
 });
 
