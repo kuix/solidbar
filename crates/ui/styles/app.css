@@ -828,7 +828,8 @@ code {
   font-weight: 500;
 }
 
-.client {
+.client,
+.work .task {
   color: var(--text-secondary);
   font-weight: 400;
 }

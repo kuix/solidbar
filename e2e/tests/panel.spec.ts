@@ -22,6 +22,10 @@ test("shows today with its entries and the week totals", async ({ page }) => {
   await expect(entries.first()).toHaveAccessibleName(
     "Design system › Header. Kuix. Header components. 1 hour 30 minutes, 09:00 to 10:30. billable",
   );
+  // The row shows the task; the client is in its tooltip.
+  const work = entries.first().locator(".work");
+  await expect(work).toHaveText("Design system › Header");
+  await expect(work).toHaveAttribute("title", "Design system › Header · Kuix");
   await expect(page.locator(".week-total")).toContainText("10:00");
   await page.screenshot({ path: "screenshots/panel-light.png" });
   await expectAccessible(page);

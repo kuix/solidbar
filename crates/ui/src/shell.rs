@@ -13,7 +13,8 @@ use web_sys::MouseEvent;
 
 use crate::entry_form::EntryForm;
 use crate::format::{
-    format_hm, group_label, installing, interval_label, spoken_duration, time_range, work_title,
+    format_hm, group_label, installing, interval_label, project_title, spoken_duration, task_title,
+    time_range, work_title,
 };
 use crate::icons;
 use crate::rows::Row;
@@ -453,6 +454,10 @@ fn GroupRow(group: EntryGroup) -> impl IntoView {
     let count = group.len();
     let total = format_hm(group.duration_seconds());
     let label = group_label(&group);
+    let work_tooltip = match &entry.client_name {
+        Some(client) => format!("{} · {client}", work_title(&entry)),
+        None => work_title(&entry),
+    };
     let intervals = move || {
         group
             .entries
@@ -472,12 +477,11 @@ fn GroupRow(group: EntryGroup) -> impl IntoView {
                         .into_any()
                 }}
                 <span class="titles">
-                    <span class="work">
-                        {work_title(&entry)}
-                        {entry
-                            .client_name
-                            .clone()
-                            .map(|client| view! { <span class="client">{format!(" · {client}")}</span> })}
+                    // The task rather than the client, which shows on hover.
+                    <span class="work" title=work_tooltip>
+                        {project_title(&entry)}
+                        {task_title(&entry)
+                            .map(|task| view! { <span class="task">{format!(" › {task}")}</span> })}
                     </span>
                     <span class="notes">{notes}</span>
                 </span>

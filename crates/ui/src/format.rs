@@ -23,15 +23,28 @@ pub fn spoken_duration(seconds: i64) -> String {
 
 /// `Design system › Header`, `No project`, or `Break`.
 pub fn work_title(entry: &EntryView) -> String {
+    match task_title(entry) {
+        Some(task) => format!("{} › {task}", project_title(entry)),
+        None => project_title(entry),
+    }
+}
+
+/// `Design system`, `No project`, or `Break`: the title without the task.
+pub fn project_title(entry: &EntryView) -> String {
     if entry.kind == EntryKind::Break {
         return "Break".to_owned();
     }
-    match (&entry.project_name, &entry.task_name) {
-        (Some(project), Some(task)) => format!("{project} › {task}"),
-        (Some(project), None) => project.clone(),
-        (None, _) if entry.project_id.is_some() => "Unknown project".to_owned(),
-        (None, _) => "No project".to_owned(),
+    match &entry.project_name {
+        Some(project) => project.clone(),
+        None if entry.project_id.is_some() => "Unknown project".to_owned(),
+        None => "No project".to_owned(),
     }
+}
+
+/// The entry's task, which follows its project in the title.
+pub fn task_title(entry: &EntryView) -> Option<&str> {
+    let has_project = entry.kind == EntryKind::Work && entry.project_name.is_some();
+    entry.task_name.as_deref().filter(|_| has_project)
 }
 
 /// Everything a screen reader needs about a row in one sentence.
@@ -179,6 +192,27 @@ mod tests {
             }],
         };
         assert_eq!(group_label(&pause), "Break. 15 minutes, 09:00 to 11:00");
+    }
+
+    #[test]
+    fn titles_put_the_task_after_the_project() {
+        let with_task = EntryView {
+            task_id: Some("t1".to_owned()),
+            task_name: Some("Header".to_owned()),
+            ..entry("a", 60)
+        };
+        assert_eq!(project_title(&with_task), "Design system");
+        assert_eq!(task_title(&with_task), Some("Header"));
+        assert_eq!(work_title(&with_task), "Design system › Header");
+
+        let without_project = EntryView {
+            project_id: None,
+            project_name: None,
+            ..with_task.clone()
+        };
+        assert_eq!(task_title(&without_project), None);
+        assert_eq!(work_title(&without_project), "No project");
+        assert_eq!(work_title(&entry("b", 60)), "Design system");
     }
 
     #[test]
