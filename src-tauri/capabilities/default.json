@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissions for the Solidbar panel webview",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

@@ -1,5 +1,8 @@
 //! The popover-like panel anchored under the menu bar icon.
 //!
+//! Dragged away from the icon by its header, the panel detaches as Harvest's does: it stays
+//! open when something else takes the focus, until it's closed, and opens under the icon again.
+//!
 //! All tauri-nspanel usage lives in this module so it can be swapped out if needed.
 
 // `panel_event!` requires explicit `-> ()` return types.
@@ -26,6 +29,9 @@ const SCREEN_MARGIN: f64 = 8.0;
 /// A tray click this soon after the panel hid itself (on resign key) must not reopen it:
 /// the click on the icon is what took the key status away.
 const REOPEN_GUARD: Duration = Duration::from_millis(250);
+/// How far the panel can be from where it was put under the icon, in points, and still count
+/// as being there: frames can come back off by a rounding.
+const ANCHOR_SLACK: f64 = 1.0;
 
 tauri_panel! {
     panel!(SolidbarPanel {
@@ -37,7 +43,8 @@ tauri_panel! {
     })
 
     panel_event!(SolidbarPanelEvents {
-        window_did_resign_key(notification: &NSNotification) -> ()
+        window_did_resign_key(notification: &NSNotification) -> (),
+        window_did_move(notification: &NSNotification) -> ()
     })
 }
 
@@ -57,6 +64,10 @@ pub struct Anchor {
 #[derive(Default)]
 pub struct PanelState {
     pinned: AtomicBool,
+    /// Dragged away from the icon since it opened.
+    detached: AtomicBool,
+    /// The top left corner the panel was last put at under the icon.
+    anchored_at: Mutex<Option<NSPoint>>,
     hidden_at: Mutex<Option<Instant>>,
     /// The app that was frontmost when the panel opened, so focus can go back to it.
     previous_app_pid: Mutex<Option<i32>>,
@@ -86,8 +97,20 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let handle = app.clone();
     handler.window_did_resign_key(move |_notification| {
         let state = handle.state::<PanelState>();
-        if !state.pinned.load(Ordering::Relaxed) {
+        if !state.pinned.load(Ordering::Relaxed) && !state.detached.load(Ordering::Relaxed) {
             hide(&handle);
+        }
+    });
+    let handle = app.clone();
+    // Putting the panel under the icon moves it too, so only a move away from there counts.
+    handler.window_did_move(move |_notification| {
+        let Ok(panel) = handle.get_webview_panel(LABEL) else {
+            return;
+        };
+        let state = handle.state::<PanelState>();
+        let anchored_at = *state.anchored_at.lock().unwrap();
+        if left_its_anchor(anchored_at, panel.as_panel().frame()) {
+            state.detached.store(true, Ordering::Relaxed);
         }
     });
     panel.set_event_handler(Some(handler.as_ref()));
@@ -118,14 +141,16 @@ pub fn toggle_from_tray(app: &AppHandle, anchor: Option<Anchor>) {
     }
 }
 
-/// Shows the panel under the menu bar icon (when it's known where that is) and makes it key.
+/// Shows the panel under the menu bar icon (when it's known where that is, and the panel isn't
+/// detached) and makes it key.
 pub fn show(app: &AppHandle, anchor: Option<Anchor>, reason: ShowReason) {
     let Ok(panel) = app.get_webview_panel(LABEL) else {
         return;
     };
     remember_frontmost_app(app);
-    if let Some(anchor) = anchor {
-        position_under(panel.as_panel(), anchor);
+    let state = app.state::<PanelState>();
+    if let Some(anchor) = anchor.filter(|_| !state.detached.load(Ordering::Relaxed)) {
+        position_under(panel.as_panel(), anchor, &state);
     }
     panel.show_and_make_key();
     let _ = app.emit(PanelShown::NAME, reason);
@@ -143,6 +168,8 @@ pub fn hide(app: &AppHandle) {
     }
     panel.hide();
     let state = app.state::<PanelState>();
+    // Detached until closed: it opens under the icon again.
+    state.detached.store(false, Ordering::Relaxed);
     *state.hidden_at.lock().unwrap() = Some(Instant::now());
     restore_previous_app(&state);
     let _ = app.emit(PanelHidden::NAME, ());
@@ -154,9 +181,23 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
         .store(pinned, Ordering::Relaxed);
 }
 
-fn position_under(panel: &NSPanel, anchor: Anchor) {
+fn position_under(panel: &NSPanel, anchor: Anchor, state: &PanelState) {
     let top_left = top_left_under(anchor, panel.frame().size.width);
+    // Before the move, which tells `window_did_move` about it.
+    *state.anchored_at.lock().unwrap() = Some(top_left);
     panel.setFrameTopLeftPoint(top_left);
+}
+
+/// Whether a panel at `frame` was moved away from `anchored_at`, where it was put under the
+/// icon. One that was never put there hasn't been.
+fn left_its_anchor(anchored_at: Option<NSPoint>, frame: NSRect) -> bool {
+    let Some(anchored_at) = anchored_at else {
+        return false;
+    };
+    // y grows upwards, so the top edge is the origin's y plus the height.
+    let top = frame.origin.y + frame.size.height;
+    (frame.origin.x - anchored_at.x).abs() > ANCHOR_SLACK
+        || (top - anchored_at.y).abs() > ANCHOR_SLACK
 }
 
 /// The top left corner of a panel `width` points wide: centered under the icon, and within
@@ -247,5 +288,20 @@ mod tests {
             (top_left.x, top_left.y),
             (825.0, 982.0 + 1080.0 - 24.0 - 4.0)
         );
+    }
+
+    #[test]
+    fn detaches_only_when_dragged_away_from_the_icon() {
+        let anchored_at = Some(NSPoint::new(825.0, 954.0));
+        // A 380×520 panel whose top left corner is at (825, 954).
+        let under_the_icon = rect(825.0, 954.0 - 520.0, 380.0, 520.0);
+        assert!(!left_its_anchor(anchored_at, under_the_icon));
+        let off_by_a_rounding = rect(825.5, 954.0 - 520.0 - 0.5, 380.0, 520.0);
+        assert!(!left_its_anchor(anchored_at, off_by_a_rounding));
+        let dragged_down = rect(825.0, 954.0 - 520.0 - 40.0, 380.0, 520.0);
+        assert!(left_its_anchor(anchored_at, dragged_down));
+        let dragged_sideways = rect(600.0, 954.0 - 520.0, 380.0, 520.0);
+        assert!(left_its_anchor(anchored_at, dragged_sideways));
+        assert!(!left_its_anchor(None, dragged_down));
     }
 }
