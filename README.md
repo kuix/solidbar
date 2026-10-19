@@ -38,11 +38,11 @@ Solidbar is not an official solidtime product.
 
 ## Install
 
-1. Download `Solidbar_<version>_universal.dmg` from the [latest release](https://github.com/kuix/solidbar/releases/latest).
+1. Download `Solidbar_<version>_aarch64.dmg` from the [latest release](https://github.com/kuix/solidbar/releases/latest).
 2. Open it and drag **Solidbar** to **Applications**.
 3. Start Solidbar. It lives in the menu bar (there's no Dock icon); click the clock or press `⌥⌘T`.
 
-Requires macOS 12 or later, on Apple silicon or Intel. Solidbar updates itself; see [Updates](#updates).
+Requires macOS 12 or later on a Mac with Apple silicon. Solidbar updates itself; see [Updates](#updates).
 
 ## Sign in
 
@@ -170,7 +170,7 @@ Requirements: Rust (pinned in `rust-toolchain.toml`), [trunk](https://trunkrs.de
 cargo tauri dev                    # run the app
 cargo test --workspace             # unit, property and API tests (wiremock)
 cd e2e && npm ci && npx playwright install webkit && npx playwright test
-cargo tauri build --target universal-apple-darwin
+cargo tauri build --target aarch64-apple-darwin
 ```
 
 Debug builds keep the session in a private file instead of the keychain, so rebuilds don't trigger keychain prompts.
@@ -201,7 +201,7 @@ Layout:
 
 1. Bump `version` in `Cargo.toml` (workspace) and `src-tauri/tauri.conf.json`.
 2. Push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The Release workflow builds the universal app, signs it with the Developer ID certificate, notarizes the app and the DMG (whose window says "drag Solidbar to Applications"), and attaches the DMG, the update archive and `latest.json` to a draft release. Publishing the draft makes the update available to everyone.
+3. The Release workflow builds the app for Apple silicon, signs it with the Developer ID certificate, notarizes the app and the DMG (whose window says "drag Solidbar to Applications"), and attaches the DMG, the update archive and `latest.json` to a draft release. Publishing the draft makes the update available to everyone.
 
 To build a DMG without releasing, run the workflow by hand (Actions › Release › Run workflow); the DMG is attached to the run. Without the Apple secrets that build is unsigned.
 

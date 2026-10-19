@@ -1,6 +1,6 @@
 name: Release
 
-# Builds Solidbar as a universal app (Apple silicon and Intel), signed with the Developer ID
+# Builds Solidbar for Apple silicon, signed with the Developer ID
 # certificate and notarized, in a DMG whose window shows "drag Solidbar to Applications".
 #
 # - Push a tag like `v0.2.0` (matching `version` in src-tauri/tauri.conf.json): a draft GitHub
@@ -42,7 +42,7 @@ jobs:
       # Lay out the DMG window (background, icon positions) in Finder; the bundler skips that
       # on CI unless told otherwise.
       TAURI_BUNDLER_DMG_IGNORE_CI: "true"
-      BUNDLE: target/universal-apple-darwin/release/bundle
+      BUNDLE: target/aarch64-apple-darwin/release/bundle
     steps:
       - uses: actions/checkout@v7
 
@@ -64,7 +64,7 @@ jobs:
             done
           fi
 
-      # rust-toolchain.toml pins the toolchain and both macOS targets.
+      # rust-toolchain.toml pins the toolchain and the Apple silicon target.
       - run: rustup show active-toolchain || rustup toolchain install
       # A tag's cache could only ever be restored by that same tag, so releases restore the
       # cache of a run on main (Run workflow) and only such a run saves one.
@@ -87,7 +87,7 @@ jobs:
 
       - name: Build, sign and notarize the app
         run: |
-          args=(--target universal-apple-darwin)
+          args=(--target aarch64-apple-darwin)
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             args+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
           else
@@ -130,20 +130,17 @@ jobs:
           cp "$BUNDLE"/dmg/*.dmg dist/
           archive="$BUNDLE/macos/Solidbar.app.tar.gz"
           if [ -f "$archive" ]; then
-            name="Solidbar_${VERSION}_universal.app.tar.gz"
+            name="Solidbar_${VERSION}_aarch64.app.tar.gz"
             cp "$archive" "dist/$name"
             cp "$archive.sig" "dist/$name.sig"
-            # The universal archive serves both architectures.
             jq -n \
               --arg version "$VERSION" \
               --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               --arg signature "$(cat "$archive.sig")" \
               --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$name" \
               '{version: $version, pub_date: $date, notes: "See the release on GitHub.",
-                platforms: {
-                  "darwin-aarch64": {signature: $signature, url: $url},
-                  "darwin-x86_64": {signature: $signature, url: $url}
-                }}' > dist/latest.json
+                platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
+              > dist/latest.json
           fi
           ls -l dist
 
