@@ -403,6 +403,10 @@ test("settings open with ⌘, in place of the days, and close with Escape", asyn
   await page.keyboard.press("Meta+Comma");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(days).toHaveCount(0);
+  // Settings takes the week's place in the header, and Today goes.
+  await expect(page.getByRole("button", { name: "Previous week" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Today" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "‹ Back" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Show or hide Solidbar ⌥⌘T", exact: true })).toBeVisible();
   await page.screenshot({ path: "screenshots/settings.png", fullPage: true });
   await expectAccessible(page);

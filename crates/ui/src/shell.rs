@@ -81,7 +81,7 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
         store.run::<PanelSetPinned>(PinArgs { pinned });
     };
 
-    let in_form = Memo::new(move |_| store.screen.get() == Screen::Form);
+    let screen = Memo::new(move |_| store.screen.get());
     let week_nav = move || {
         view! {
             <div class="week-nav">
@@ -121,10 +121,13 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
 
     view! {
         <header class="header">
-            // The form's entry goes on one day, which these change; weeks and today don't matter.
-            <Show when=move || in_form.get() fallback=week_nav>
-                <FormDayNav />
-            </Show>
+            // Weeks and today are only about the list. The form's entry goes on one day, which
+            // its header changes; Settings has no days at all.
+            {move || match screen.get() {
+                Screen::List => week_nav().into_any(),
+                Screen::Form => view! { <FormDayNav /> }.into_any(),
+                Screen::Settings => view! { <SettingsNav /> }.into_any(),
+            }}
             <button
                 type="button"
                 class="icon-button"
@@ -189,6 +192,26 @@ fn FormDayNav() -> impl IntoView {
             >
                 {icons::chevron_right()}
             </button>
+        </div>
+    }
+}
+
+/// Settings' title, with ‹ Back (Escape) to the list.
+#[component]
+fn SettingsNav() -> impl IntoView {
+    let store = expect_context::<Store>();
+    view! {
+        <div class="week-nav settings-nav">
+            <button
+                type="button"
+                id="settings-back"
+                class="link"
+                aria-keyshortcuts="Escape"
+                on:click=move |_| store.close_settings()
+            >
+                "‹ Back"
+            </button>
+            <h1 id="settings-title" class="week-label">"Settings"</h1>
         </div>
     }
 }

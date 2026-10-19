@@ -1205,15 +1205,14 @@ input.time-field {
   letter-spacing: 0.03em;
 }
 
-.settings-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* In the header, in line with the settings under it. */
+.settings-nav {
+  gap: 8px;
+  padding-left: 2px;
 }
 
-.settings-header h2 {
-  font-size: 13px;
-  font-weight: 600;
+.settings > h3:first-child {
+  margin-top: 4px;
 }
 
 .account {

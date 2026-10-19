@@ -76,7 +76,6 @@ pub fn Settings() -> impl IntoView {
             }
         });
     };
-    let back = move |_| store.close_settings();
     let theme_choice = move |theme: Theme, label: &'static str| {
         view! {
             <label class="choice">
@@ -119,19 +118,6 @@ pub fn Settings() -> impl IntoView {
 
     view! {
         <section class="settings" aria-labelledby="settings-title">
-            <div class="settings-header">
-                <button
-                    type="button"
-                    id="settings-back"
-                    class="link"
-                    aria-keyshortcuts="Escape"
-                    on:click=back
-                >
-                    "‹ Back"
-                </button>
-                <h2 id="settings-title">"Settings"</h2>
-            </div>
-
             <h3>"Account"</h3>
             {move || {
                 account
