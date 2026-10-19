@@ -35,6 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show active-toolchain || rustup toolchain install
+      # Nothing is built here: the cache keeps cargo-deny and cargo-about, so they aren't
+      # fetched from GitHub every time, and the crates whose licenses cargo-about reads.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - uses: cargo-bins/cargo-binstall@v1.23.0
       - run: cargo binstall -y --locked cargo-deny@0.20.2 cargo-about@0.9.2
       - name: Only the licenses deny.toml allows

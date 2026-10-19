@@ -66,7 +66,11 @@ jobs:
 
       # rust-toolchain.toml pins the toolchain and both macOS targets.
       - run: rustup show active-toolchain || rustup toolchain install
+      # A tag's cache could only ever be restored by that same tag, so releases restore the
+      # cache of a run on main (Run workflow) and only such a run saves one.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: cargo-bins/cargo-binstall@v1.23.0
       - run: cargo binstall -y --locked trunk@0.21.14 tauri-cli@2.12.1
 
