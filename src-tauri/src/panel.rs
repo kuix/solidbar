@@ -2,6 +2,7 @@
 //!
 //! Dragged away from the icon by its header, the panel detaches as Harvest's does: it stays
 //! open when something else takes the focus, until it's closed, and opens under the icon again.
+//! Detached, it has the window buttons in its header, and the close button closes it.
 //!
 //! All tauri-nspanel usage lives in this module so it can be swapped out if needed.
 
@@ -12,9 +13,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+use objc2_app_kit::{
+    NSApplicationActivationOptions, NSRunningApplication, NSWindowButton, NSWindowStyleMask,
+    NSWindowTitleVisibility, NSWorkspace,
+};
 use solidbar_core::engine::Engine;
-use solidbar_shared::ipc::{Event, PanelHidden, PanelShown, ShowReason};
+use solidbar_shared::ipc::{Event, PanelDetached, PanelHidden, PanelShown, ShowReason};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_nspanel::{
     CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt, tauri_panel,
@@ -32,6 +36,16 @@ const REOPEN_GUARD: Duration = Duration::from_millis(250);
 /// How far the panel can be from where it was put under the icon, in points, and still count
 /// as being there: frames can come back off by a rounding.
 const ANCHOR_SLACK: f64 = 1.0;
+/// What the panel's style gains while it's detached: a title bar, see-through and without its
+/// title, so the window buttons sit in the header. Only Close works: a panel of a fixed size
+/// that opens from the menu bar has nothing to minimize or zoom to.
+const DETACHED_STYLE: NSWindowStyleMask = NSWindowStyleMask::Titled
+    .union(NSWindowStyleMask::Closable)
+    .union(NSWindowStyleMask::FullSizeContentView);
+/// Where the window buttons go, in points from the panel's top left corner: the close
+/// button's left edge, and the middle of the header's row of buttons (`.header` in app.css).
+const WINDOW_BUTTONS_LEFT: f64 = 13.0;
+const WINDOW_BUTTONS_MIDDLE: f64 = 21.0;
 
 tauri_panel! {
     panel!(SolidbarPanel {
@@ -44,11 +58,13 @@ tauri_panel! {
 
     panel_event!(SolidbarPanelEvents {
         window_did_resign_key(notification: &NSNotification) -> (),
-        window_did_move(notification: &NSNotification) -> ()
+        window_did_become_key(notification: &NSNotification) -> (),
+        window_did_move(notification: &NSNotification) -> (),
+        window_should_close(window: &NSWindow) -> Bool
     })
 }
 
-// `tauri_panel!` above brings `NSPanel`, `NSPoint`, `NSRect` and `NSSize` into scope.
+// `tauri_panel!` above brings `Bool`, `NSPanel`, `NSPoint`, `NSRect` and `NSSize` into scope.
 
 /// Where the panel opens, in AppKit screen coordinates: points, from the bottom left of the
 /// main screen, y growing upwards. Points rather than pixels, because screens side by side can
@@ -109,9 +125,31 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         };
         let state = handle.state::<PanelState>();
         let anchored_at = *state.anchored_at.lock().unwrap();
-        if left_its_anchor(anchored_at, panel.as_panel().frame()) {
-            state.detached.store(true, Ordering::Relaxed);
+        if left_its_anchor(anchored_at, panel.as_panel().frame())
+            && !state.detached.swap(true, Ordering::Relaxed)
+        {
+            // Once the drag is over: a new style mask rebuilds the window's frame view.
+            later(&handle, |app| set_window_buttons(app, true));
         }
+    });
+    let handle = app.clone();
+    // AppKit puts the window buttons back where a title bar has them now and then.
+    handler.window_did_become_key(move |_notification| {
+        if handle
+            .state::<PanelState>()
+            .detached
+            .load(Ordering::Relaxed)
+            && let Ok(panel) = handle.get_webview_panel(LABEL)
+        {
+            place_window_buttons(panel.as_panel());
+        }
+    });
+    let handle = app.clone();
+    // The close button closes the panel as Escape does, so it opens under the icon again.
+    handler.window_should_close(move |_window| {
+        // Once the click is over: closing takes the button away.
+        later(&handle, hide);
+        Bool::NO
     });
     panel.set_event_handler(Some(handler.as_ref()));
 
@@ -169,7 +207,9 @@ pub fn hide(app: &AppHandle) {
     panel.hide();
     let state = app.state::<PanelState>();
     // Detached until closed: it opens under the icon again.
-    state.detached.store(false, Ordering::Relaxed);
+    if state.detached.swap(false, Ordering::Relaxed) {
+        set_window_buttons(app, false);
+    }
     *state.hidden_at.lock().unwrap() = Some(Instant::now());
     restore_previous_app(&state);
     let _ = app.emit(PanelHidden::NAME, ());
@@ -179,6 +219,76 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
     app.state::<PanelState>()
         .pinned
         .store(pinned, Ordering::Relaxed);
+}
+
+/// Runs `task` on the main thread after the event being handled there. (`run_on_main_thread`
+/// alone would run it right away, from the main thread.)
+fn later(app: &AppHandle, task: fn(&AppHandle)) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let app = handle.clone();
+        let _ = handle.run_on_main_thread(move || task(&app));
+    });
+}
+
+/// Gives the detached panel its window buttons, or takes them away for the popover under the
+/// icon, and tells the UI, which makes room for them in the header.
+fn set_window_buttons(app: &AppHandle, shown: bool) {
+    let Ok(panel) = app.get_webview_panel(LABEL) else {
+        return;
+    };
+    let window = panel.as_panel();
+    let style = if shown {
+        window.styleMask().union(DETACHED_STYLE)
+    } else {
+        window.styleMask().difference(DETACHED_STYLE)
+    };
+    if let Err(error) = panel.set_style_mask(style) {
+        log::warn!("couldn't change the panel's window buttons: {error}");
+        return;
+    }
+    if shown {
+        window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+        window.setTitlebarAppearsTransparent(true);
+        place_window_buttons(window);
+    }
+    let _ = app.emit(PanelDetached::NAME, shown);
+}
+
+/// Lines the window buttons up with the header's buttons, at its left end.
+fn place_window_buttons(window: &NSPanel) {
+    let [Some(close), Some(minimize), Some(zoom)] = [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ]
+    .map(|kind| window.standardWindowButton(kind)) else {
+        return;
+    };
+    // The buttons are in the title bar view, in the title bar's container.
+    // SAFETY: plain reads of the view hierarchy, on the main thread.
+    let Some(title_bar) = (unsafe { close.superview() }) else {
+        return;
+    };
+    let Some(container) = (unsafe { title_bar.superview() }) else {
+        return;
+    };
+    // The title bar as tall as the header's row of buttons is from the top, twice, so the
+    // buttons centered in it are in line with them. y grows upwards.
+    let height = 2.0 * WINDOW_BUTTONS_MIDDLE;
+    let mut frame = container.frame();
+    frame.size.height = height;
+    frame.origin.y = window.frame().size.height - height;
+    container.setFrame(frame);
+    title_bar.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), frame.size));
+    let size = close.frame().size;
+    let spacing = minimize.frame().origin.x - close.frame().origin.x;
+    for (index, button) in [close, minimize, zoom].iter().enumerate() {
+        button.setFrameOrigin(NSPoint::new(
+            WINDOW_BUTTONS_LEFT + index as f64 * spacing,
+            ((height - size.height) / 2.0).round(),
+        ));
+    }
 }
 
 fn position_under(panel: &NSPanel, anchor: Anchor, state: &PanelState) {

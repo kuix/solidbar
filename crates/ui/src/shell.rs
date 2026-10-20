@@ -120,8 +120,13 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
     };
 
     view! {
-        // Dragged by anything in it but its buttons, the panel comes away from the menu bar.
-        <header class="header" data-tauri-drag-region="deep">
+        // Dragged by anything in it but its buttons, the panel comes away from the menu bar,
+        // and the window buttons take the header's left end.
+        <header
+            class="header"
+            class:detached=move || store.detached.get()
+            data-tauri-drag-region="deep"
+        >
             // Weeks and today are only about the list. The form's entry goes on one day, which
             // its header changes; Settings has no days at all.
             {move || match screen.get() {

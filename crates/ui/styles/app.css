@@ -434,6 +434,11 @@ code {
   padding: 8px 8px 6px;
 }
 
+/* Dragged away: the window buttons (placed by `panel::place_window_buttons`) come first. */
+.header.detached {
+  padding-left: 76px;
+}
+
 .week-nav {
   display: flex;
   align-items: center;

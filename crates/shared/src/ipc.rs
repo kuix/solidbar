@@ -233,6 +233,9 @@ events! {
     NoticeShown = "view://notice", Notice;
     PanelShown = "panel://shown", ShowReason;
     PanelHidden = "panel://hidden", ();
+    /// The panel was dragged away from the menu bar (true) and has the window buttons in its
+    /// header, or is back under the icon (false).
+    PanelDetached = "panel://detached", bool;
     UpdateChanged = "update://changed", UpdateView;
 }
 

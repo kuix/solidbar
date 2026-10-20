@@ -3,7 +3,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use solidbar_shared::ipc::{
-    AppChanged, Bootstrap, CatalogChanged, GetUpdate, NoticeShown, PanelShown, UpdateChanged,
+    AppChanged, Bootstrap, CatalogChanged, GetUpdate, NoticeShown, PanelDetached, PanelShown,
+    UpdateChanged,
 };
 use solidbar_shared::settings::Theme;
 use solidbar_shared::view::{AuthView, NoticeKind};
@@ -32,6 +33,7 @@ pub fn App() -> impl IntoView {
     on::<CatalogChanged>(move |catalog| store.catalog.set(catalog));
     on::<NoticeShown>(move |notice| store.notify(notice));
     on::<PanelShown>(move |reason| store.panel_shown(reason));
+    on::<PanelDetached>(move |detached| store.detached.set(detached));
     on::<UpdateChanged>(move |update| store.update.set(update));
     spawn_local(async move {
         match call::<Bootstrap>(&()).await {

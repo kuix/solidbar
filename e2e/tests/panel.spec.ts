@@ -413,6 +413,21 @@ test("Escape hides the panel", async ({ page }) => {
   expect(await invoked(page, "panel_hide")).toHaveLength(1);
 });
 
+test("dragged away, the header makes room for the window buttons", async ({ page }) => {
+  await open(page);
+  const previous = page.getByRole("button", { name: "Previous week" });
+  const under = (await previous.boundingBox())!.x;
+  await page.evaluate(() => (window as any).__detachPanel(true));
+  // The native buttons end 67 points in.
+  await expect.poll(async () => (await previous.boundingBox())!.x).toBeGreaterThanOrEqual(76);
+  await expect(page.getByRole("button", { name: "Settings" })).toBeInViewport({ ratio: 1 });
+  await expectAccessible(page);
+
+  // Closed, it opens under the icon again, without them.
+  await page.evaluate(() => (window as any).__detachPanel(false));
+  await expect.poll(async () => (await previous.boundingBox())!.x).toBe(under);
+});
+
 test("settings open with ⌘, in place of the days, and close with Escape", async ({ page }) => {
   await open(page);
   const days = page.getByRole("tablist", { name: "Days of the week" });
