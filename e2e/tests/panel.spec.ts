@@ -180,6 +180,22 @@ test("the project picker opens like a pop-up menu and Escape closes only the lis
   await expect(page.getByRole("tablist", { name: "Days of the week" })).toBeVisible();
 });
 
+test("the project list shows the pointer, and the option under it", async ({ page }) => {
+  await open(page);
+  await page.keyboard.press("Meta+KeyN");
+  await page.keyboard.press("Space");
+  const options = page.getByRole("listbox", { name: "Projects and tasks" }).getByRole("option");
+  // Not the highlighted one, which keeps its own colour.
+  const option = options.filter({ hasText: "Support" }).last();
+  await expect(option).not.toHaveClass(/active/);
+  await expect(option).toHaveCSS("cursor", "pointer");
+  await expect(option).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  await option.hover();
+  await expect(option).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expectAccessible(page);
+});
+
 test("a form keeps what was typed while the panel is away", async ({ page }) => {
   await open(page);
   // On another day than today, which the panel goes back to when it's shown.

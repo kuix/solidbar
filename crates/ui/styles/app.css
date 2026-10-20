@@ -1045,6 +1045,15 @@ code {
   color: var(--on-accent);
 }
 
+/* Options are clicked too: the pointer says so, and the one under it shows like a row. */
+.listbox li[role="option"] {
+  cursor: pointer;
+}
+
+.listbox li[role="option"]:hover:not(.active) {
+  background: var(--hover);
+}
+
 /* A recent choice's task, and its ⌘ number on the right, like a menu item's shortcut. */
 .listbox .option-label .task,
 .listbox .shortcut {
