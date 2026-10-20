@@ -413,19 +413,45 @@ test("Escape hides the panel", async ({ page }) => {
   expect(await invoked(page, "panel_hide")).toHaveLength(1);
 });
 
-test("dragged away, the header makes room for the window buttons", async ({ page }) => {
+test("dragged away, the panel has window buttons, and Close closes it", async ({ page }) => {
   await open(page);
-  const previous = page.getByRole("button", { name: "Previous week" });
-  const under = (await previous.boundingBox())!.x;
+  const close = page.getByRole("button", { name: "Close", exact: true });
+  await expect(close).toHaveCount(0);
   await page.evaluate(() => (window as any).__detachPanel(true));
-  // The native buttons end 67 points in.
-  await expect.poll(async () => (await previous.boundingBox())!.x).toBeGreaterThanOrEqual(76);
+  await expect(close).toBeVisible();
+  // A panel of a fixed size, opened from the menu bar, has nothing to minimize or zoom to.
+  await expect(page.getByRole("button", { name: "Minimize" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Zoom" })).toBeDisabled();
+  // First in the header, and out of the tab order, as macOS's are.
+  const previous = page.getByRole("button", { name: "Previous week" });
+  expect((await close.boundingBox())!.x).toBeLessThan((await previous.boundingBox())!.x);
+  await expect(close).toHaveAttribute("tabindex", "-1");
   await expect(page.getByRole("button", { name: "Settings" })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: "screenshots/detached.png" });
   await expectAccessible(page);
 
+  // Grey while another window has the focus.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.locator(".window-buttons")).toHaveClass(/inactive/);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.locator(".window-buttons")).not.toHaveClass(/inactive/);
+
+  await close.hover();
+  await page.screenshot({ path: "screenshots/detached-hover.png" });
+  await close.click();
+  expect(await invoked(page, "panel_hide")).toHaveLength(1);
   // Closed, it opens under the icon again, without them.
   await page.evaluate(() => (window as any).__detachPanel(false));
-  await expect.poll(async () => (await previous.boundingBox())!.x).toBe(under);
+  await expect(close).toHaveCount(0);
+});
+
+test("dragged away in dark mode, the window buttons stay readable", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await open(page);
+  await page.evaluate(() => (window as any).__detachPanel(true));
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+  await page.screenshot({ path: "screenshots/detached-dark.png" });
+  await expectAccessible(page);
 });
 
 test("settings open with ⌘, in place of the days, and close with Escape", async ({ page }) => {
