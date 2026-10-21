@@ -9,7 +9,7 @@ use solidbar_shared::shortcuts::GlobalAction;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use crate::{panel, tray};
+use crate::{panel, tray, window};
 
 /// The accelerator currently registered for each action.
 #[derive(Default)]
@@ -107,12 +107,16 @@ fn unregister(app: &AppHandle, action: GlobalAction) -> Option<String> {
 
 fn run(app: &AppHandle, action: GlobalAction) {
     match action {
+        GlobalAction::TogglePanel if window::is_windowed(app) => window::toggle(app),
         GlobalAction::TogglePanel => {
             if panel::is_visible(app) {
                 panel::hide(app);
             } else {
                 panel::show(app, tray::anchor(app), ShowReason::Toggle);
             }
+        }
+        GlobalAction::NewEntry if window::is_windowed(app) => {
+            window::show(app, ShowReason::NewEntry);
         }
         GlobalAction::NewEntry => {
             panel::show(app, tray::anchor(app), ShowReason::NewEntry);

@@ -7,14 +7,15 @@ mod shortcuts;
 mod sink;
 mod tray;
 mod updates;
+mod window;
 
 use std::sync::Arc;
 
 use solidbar_core::auth::{FileTokenStore, KeychainTokenStore, TokenStore};
 use solidbar_core::engine::{Engine, EngineDeps};
 use solidbar_core::ports::{SystemClock, UrlOpener};
-use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Manager};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -33,10 +34,12 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Edit commands (⌘C, ⌘V, ⌘Z…) need a menu even though it's never visible. The default
-        // menu also has "Close Window" (⌘W), which would destroy the panel, so build our own.
+        // Edit commands (⌘C, ⌘V, ⌘Z…) need a menu, which shows only in window mode. The default
+        // menu's "Close Window" (⌘W) would destroy the panel, so build our own.
         .menu(app_menu)
+        .on_menu_event(|app, event| window::menu_event(app, event.id().as_ref()))
         .manage(panel::PanelState::default())
+        .manage(window::WindowMode::default())
         .manage(shortcuts::Registered::default())
         .manage(updates::Updates::default())
         .invoke_handler(tauri::generate_handler![
@@ -62,6 +65,7 @@ fn main() {
             commands::get_autostart,
             commands::panel_hide,
             commands::panel_set_pinned,
+            commands::window_dock,
             commands::open_in_browser,
             commands::open_licenses,
             commands::set_agent_access,
@@ -84,6 +88,7 @@ fn main() {
             tray::set_status(handle, &engine.app_view().tray)?;
             shortcuts::register_all(handle);
             autostart::setup(handle);
+            window::init(handle);
 
             let links = engine.clone();
             app.deep_link().on_open_url(move |event| {
@@ -103,8 +108,16 @@ fn main() {
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Solidbar");
+        .build(tauri::generate_context!())
+        .expect("error while running Solidbar")
+        .run(|app, event| {
+            // A click on the Dock icon, which only shows in window mode.
+            if let RunEvent::Reopen { .. } = event
+                && window::is_windowed(app)
+            {
+                window::show(app, solidbar_shared::ipc::ShowReason::Toggle);
+            }
+        });
 }
 
 fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -132,7 +145,25 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
-    Menu::with_items(app, &[&solidbar, &edit])
+    // Only ever about the window: in the panel's place, they'd close or minimize nothing.
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &MenuItem::with_id(
+                app,
+                window::MENU_MINIMIZE,
+                "Minimize",
+                true,
+                Some("CmdOrCtrl+M"),
+            )?,
+            &MenuItem::with_id(app, window::MENU_ZOOM, "Zoom", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, window::MENU_CLOSE, "Close", true, Some("CmdOrCtrl+W"))?,
+        ],
+    )?;
+    Menu::with_items(app, &[&solidbar, &edit, &window])
 }
 
 fn start_engine(app: &AppHandle) -> Result<Arc<Engine>, Box<dyn std::error::Error>> {

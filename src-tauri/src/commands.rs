@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::autostart::Autostart;
-use crate::{agents, panel, shortcuts, updates};
+use crate::{agents, panel, shortcuts, updates, window};
 
 type EngineState<'a> = State<'a, Arc<Engine>>;
 type Reply<T = ()> = Result<T, CommandError>;
@@ -143,6 +143,11 @@ pub fn get_autostart(app: AppHandle) -> bool {
 #[tauri::command]
 pub fn panel_hide(app: AppHandle) {
     panel::hide(&app);
+}
+
+#[tauri::command]
+pub fn window_dock(app: AppHandle) {
+    window::dock(&app);
 }
 
 #[tauri::command]

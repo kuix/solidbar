@@ -61,9 +61,9 @@ pub fn minus() -> impl IntoView {
     icon("M3 8h10")
 }
 
-/// The × of a window's close button.
-pub fn cross() -> impl IntoView {
-    icon("m4 4 8 8m0-8-8 8")
+/// An arrow up to a bar: back under the menu bar.
+pub fn dock() -> impl IntoView {
+    icon("M3 2.5h10M8 13.5V6M5 9l3-3 3 3")
 }
 
 pub fn chevron_down() -> impl IntoView {

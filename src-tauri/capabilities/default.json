@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the Solidbar panel webview",
-  "windows": ["main"],
+  "description": "Permissions for the Solidbar panel and window webviews",
+  "windows": ["main", "window"],
   "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

@@ -413,45 +413,40 @@ test("Escape hides the panel", async ({ page }) => {
   expect(await invoked(page, "panel_hide")).toHaveLength(1);
 });
 
-test("dragged away, the panel has window buttons, and Close closes it", async ({ page }) => {
+test("the window has Dock to menu bar in the pin's place, and Escape keeps it", async ({ page }) => {
+  // What `window.rs` tells the window's page before it loads.
+  await page.addInitScript(() => ((window as any).__SOLIDBAR_WINDOW__ = true));
   await open(page);
-  const close = page.getByRole("button", { name: "Close", exact: true });
-  await expect(close).toHaveCount(0);
-  await page.evaluate(() => (window as any).__detachPanel(true));
-  await expect(close).toBeVisible();
-  // A panel of a fixed size, opened from the menu bar, has nothing to minimize or zoom to.
-  await expect(page.getByRole("button", { name: "Minimize" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Zoom" })).toBeDisabled();
-  // First in the header, and out of the tab order, as macOS's are.
+  await expect(page.getByRole("button", { name: "Keep open" })).toHaveCount(0);
+  const dock = page.getByRole("button", { name: "Dock to menu bar" });
+  await expect(dock).toBeVisible();
+  // The native window buttons take the header's left end; they end 67 points in.
   const previous = page.getByRole("button", { name: "Previous week" });
-  expect((await close.boundingBox())!.x).toBeLessThan((await previous.boundingBox())!.x);
-  await expect(close).toHaveAttribute("tabindex", "-1");
+  expect((await previous.boundingBox())!.x).toBeGreaterThanOrEqual(76);
   await expect(page.getByRole("button", { name: "Settings" })).toBeInViewport({ ratio: 1 });
-  await page.screenshot({ path: "screenshots/detached.png" });
+  await page.screenshot({ path: "screenshots/window.png" });
   await expectAccessible(page);
 
-  // Grey while another window has the focus.
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await expect(page.locator(".window-buttons")).toHaveClass(/inactive/);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.locator(".window-buttons")).not.toHaveClass(/inactive/);
-
-  await close.hover();
-  await page.screenshot({ path: "screenshots/detached-hover.png" });
-  await close.click();
-  expect(await invoked(page, "panel_hide")).toHaveLength(1);
-  // Closed, it opens under the icon again, without them.
-  await page.evaluate(() => (window as any).__detachPanel(false));
-  await expect(close).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  expect(await invoked(page, "panel_hide")).toHaveLength(0);
+  await dock.click();
+  expect(await invoked(page, "window_dock")).toHaveLength(1);
 });
 
-test("dragged away in dark mode, the window buttons stay readable", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
+test("⌥⌘N opens a new entry in the window, not in the hidden panel's place", async ({ page }) => {
+  await page.addInitScript(() => ((window as any).__SOLIDBAR_WINDOW__ = true));
   await open(page);
-  await page.evaluate(() => (window as any).__detachPanel(true));
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeVisible();
-  await page.screenshot({ path: "screenshots/detached-dark.png" });
-  await expectAccessible(page);
+  // The panel's own event is for the panel's page.
+  await page.evaluate(() => (window as any).__showPanel("new_entry"));
+  await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
+  await page.evaluate(() => (window as any).__showWindow("new_entry"));
+  await expect(page.getByRole("heading", { name: /New time entry/ })).toBeVisible();
+});
+
+test("the panel keeps its pin and has no Dock to menu bar", async ({ page }) => {
+  await open(page);
+  await expect(page.getByRole("button", { name: "Keep open" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dock to menu bar" })).toHaveCount(0);
 });
 
 test("settings open with ⌘, in place of the days, and close with Escape", async ({ page }) => {

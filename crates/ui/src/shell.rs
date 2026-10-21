@@ -3,8 +3,8 @@
 use leptos::prelude::*;
 use solidbar_shared::group::{EntryGroup, group_entries};
 use solidbar_shared::ipc::{
-    AutostartArgs, InstallUpdate, MembershipArgs, PanelHide, PanelSetPinned, PinArgs, SelectOrg,
-    SetAutostart, StartBreak, StopTimer, UpdateSettings,
+    AutostartArgs, InstallUpdate, MembershipArgs, PanelSetPinned, PinArgs, SelectOrg, SetAutostart,
+    StartBreak, StopTimer, UpdateSettings, WindowDock,
 };
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateState;
@@ -80,6 +80,8 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
         store.pinned.set(pinned);
         store.run::<PanelSetPinned>(PinArgs { pinned });
     };
+    // In the window, in the pin's place: the panel under the menu bar icon again.
+    let dock = move |_| store.run::<WindowDock>(());
 
     let screen = Memo::new(move |_| store.screen.get());
     let week_nav = move || {
@@ -122,10 +124,7 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
     view! {
         // Dragged by anything in it but its buttons, the panel comes away from the menu bar,
         // and the window buttons take the header's left end.
-        <header class="header" data-tauri-drag-region="deep">
-            <Show when=move || store.detached.get()>
-                <WindowButtons />
-            </Show>
+        <header class="header" class:windowed=store.windowed data-tauri-drag-region="deep">
             // Weeks and today are only about the list. The form's entry goes on one day, which
             // its header changes; Settings has no days at all.
             {move || match screen.get() {
@@ -133,16 +132,34 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
                 Screen::Form => view! { <FormDayNav /> }.into_any(),
                 Screen::Settings => view! { <SettingsNav /> }.into_any(),
             }}
-            <button
-                type="button"
-                class="icon-button"
-                aria-label="Keep open"
-                title="Keep the panel open"
-                aria-pressed=move || store.pinned.get().to_string()
-                on:click=toggle_pin
-            >
-                {icons::pin()}
-            </button>
+            {if store.windowed {
+                view! {
+                    <button
+                        type="button"
+                        class="icon-button"
+                        aria-label="Dock to menu bar"
+                        title="Back under the menu bar icon"
+                        on:click=dock
+                    >
+                        {icons::dock()}
+                    </button>
+                }
+                    .into_any()
+            } else {
+                view! {
+                    <button
+                        type="button"
+                        class="icon-button"
+                        aria-label="Keep open"
+                        title="Keep the panel open"
+                        aria-pressed=move || store.pinned.get().to_string()
+                        on:click=toggle_pin
+                    >
+                        {icons::pin()}
+                    </button>
+                }
+                    .into_any()
+            }}
             <button
                 type="button"
                 class="icon-button"
@@ -155,38 +172,6 @@ fn Header(week: Memo<Option<WeekView>>) -> impl IntoView {
                 {icons::gear()}
             </button>
         </header>
-    }
-}
-
-/// The window buttons of the panel dragged away from the menu bar, drawn like macOS's (see
-/// `panel.rs` for why they aren't the native ones). Close closes it as Escape does. The panel
-/// has a fixed size and opens from the menu bar, so Minimize and Zoom are there but off. Like
-/// native ones they're out of the tab order, and grey while another window has the focus.
-#[component]
-fn WindowButtons() -> impl IntoView {
-    let store = expect_context::<Store>();
-    let key = RwSignal::new(document().has_focus().unwrap_or(true));
-    let focus = window_event_listener(leptos::ev::focus, move |_| key.set(true));
-    let blur = window_event_listener(leptos::ev::blur, move |_| key.set(false));
-    on_cleanup(move || {
-        focus.remove();
-        blur.remove();
-    });
-    let close = move |_| store.run::<PanelHide>(());
-    view! {
-        <div class="window-buttons" class:inactive=move || !key.get()>
-            <button
-                type="button"
-                class="window-button close"
-                aria-label="Close"
-                tabindex="-1"
-                on:click=close
-            >
-                {icons::cross()}
-            </button>
-            <button type="button" class="window-button" aria-label="Minimize" disabled></button>
-            <button type="button" class="window-button" aria-label="Zoom" disabled></button>
-        </div>
     }
 }
 

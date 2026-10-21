@@ -208,6 +208,8 @@ commands! {
     SetAutostart = "set_autostart", AutostartArgs => ();
     GetAutostart = "get_autostart", () => bool;
     PanelHide = "panel_hide", () => ();
+    /// "Dock to menu bar" in the window: the panel under the menu bar icon again.
+    WindowDock = "window_dock", () => ();
     PanelSetPinned = "panel_set_pinned", PinArgs => ();
     OpenInBrowser = "open_in_browser", () => ();
     /// Opens the licenses of Solidbar and the crates it's built with in the browser.
@@ -233,9 +235,8 @@ events! {
     NoticeShown = "view://notice", Notice;
     PanelShown = "panel://shown", ShowReason;
     PanelHidden = "panel://hidden", ();
-    /// The panel was dragged away from the menu bar (true) and has the window buttons in its
-    /// header, or is back under the icon (false).
-    PanelDetached = "panel://detached", bool;
+    /// The window (the panel dragged away from the menu bar) came to the front.
+    WindowShown = "window://shown", ShowReason;
     UpdateChanged = "update://changed", UpdateView;
 }
 

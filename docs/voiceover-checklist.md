@@ -13,6 +13,7 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 ## Week strip and list
 
 - [ ] Tabbing reaches, in order: previous week, next week, Today, Keep open, Settings, the selected day tab, the selected entry, New entry.
+- [ ] Dragged away from the menu bar, it's a window: VO reads its window buttons, and "Dock to menu bar" in the header in place of Keep open, which puts the panel back under the icon.
 - [ ] Day tabs read as "Friday, Oct 9, 2 hours, today, selected, tab, 5 of 7".
 - [ ] `←`/`→` on a day tab move to the neighbouring day and VO announces it.
 - [ ] Entries read as one sentence: project › task, client, notes, duration, start and end, billable.

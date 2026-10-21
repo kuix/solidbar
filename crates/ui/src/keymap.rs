@@ -187,7 +187,8 @@ pub fn install(store: Store) {
             })
             .unwrap_or(false);
         if !ready {
-            if keys.is("Escape") {
+            // Escape puts the panel away; a window stays, as windows do.
+            if keys.is("Escape") && !store.windowed {
                 store.run::<PanelHide>(());
                 event.prevent_default();
             }
@@ -254,7 +255,7 @@ fn list_keys(store: Store, keys: &Keys) -> bool {
         store.screen.set(Screen::Settings);
     } else if keys.is("Meta+Comma") {
         store.screen.set(Screen::Settings);
-    } else if keys.is("Escape") {
+    } else if keys.is("Escape") && !store.windowed {
         store.run::<PanelHide>(());
     } else if typing() {
         return false;

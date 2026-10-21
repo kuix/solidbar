@@ -178,8 +178,12 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
       changed();
     };
     (window as any).__hidePanel = () => emit("panel://hidden", null);
-    // Like the panel dragged away from the menu bar (true) and closed again (false).
-    (window as any).__detachPanel = (detached: boolean) => emit("panel://detached", detached);
+    // Like the window brought to the front (`window::show`).
+    (window as any).__showWindow = (reason: "toggle" | "new_entry") => {
+      emit("window://shown", reason);
+      state.app.selected_date = state.app.today;
+      changed();
+    };
     (window as any).__TAURI__ = {
       core: {
         invoke: async (cmd: string, payload: any) => {

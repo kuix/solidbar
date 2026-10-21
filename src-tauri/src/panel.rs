@@ -1,10 +1,9 @@
 //! The popover-like panel anchored under the menu bar icon.
 //!
-//! Dragged away from the icon by its header, the panel detaches as Harvest's does: it stays
-//! open when something else takes the focus, until it's closed, and opens under the icon again.
-//! The UI is told, and puts window buttons in the header. They're drawn by the UI because a
-//! title bar would mean a new style mask, and with the web view in it AppKit can't change that
-//! once the panel is up: WebKit throws while the frame view is rebuilt.
+//! Dragged away from the icon by its header and let go, the panel makes way for the window
+//! (`window.rs`) where it was let go. The panel itself can't become a window: that would mean a
+//! new style mask, and with the web view in it AppKit can't change that once the panel is up
+//! (WebKit throws while the frame view is rebuilt, and Solidbar 0.4.2 crashed).
 //!
 //! All tauri-nspanel usage lives in this module so it can be swapped out if needed.
 
@@ -17,11 +16,13 @@ use std::time::{Duration, Instant};
 
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 use solidbar_core::engine::Engine;
-use solidbar_shared::ipc::{Event, PanelDetached, PanelHidden, PanelShown, ShowReason};
+use solidbar_shared::ipc::{Event, PanelHidden, PanelShown, ShowReason};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_nspanel::{
     CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt, tauri_panel,
 };
+
+use crate::window;
 
 pub const LABEL: &str = "main";
 
@@ -35,6 +36,8 @@ const REOPEN_GUARD: Duration = Duration::from_millis(250);
 /// How far the panel can be from where it was put under the icon, in points, and still count
 /// as being there: frames can come back off by a rounding.
 const ANCHOR_SLACK: f64 = 1.0;
+/// How often a dragged-away panel checks whether it was let go.
+const DROP_POLL: Duration = Duration::from_millis(100);
 
 tauri_panel! {
     panel!(SolidbarPanel {
@@ -51,7 +54,7 @@ tauri_panel! {
     })
 }
 
-// `tauri_panel!` above brings `NSPanel`, `NSPoint`, `NSRect` and `NSSize` into scope.
+// `tauri_panel!` above brings `NSEvent`, `NSPanel`, `NSPoint`, `NSRect` and `NSSize` into scope.
 
 /// Where the panel opens, in AppKit screen coordinates: points, from the bottom left of the
 /// main screen, y growing upwards. Points rather than pixels, because screens side by side can
@@ -115,7 +118,13 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         if left_its_anchor(anchored_at, panel.as_panel().frame())
             && !state.detached.swap(true, Ordering::Relaxed)
         {
-            let _ = handle.emit(PanelDetached::NAME, true);
+            // Made now, the window has loaded by the time the panel is let go.
+            let app = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || window::prepare(&handle));
+            });
+            wait_for_drop(&handle);
         }
     });
     panel.set_event_handler(Some(handler.as_ref()));
@@ -174,9 +183,7 @@ pub fn hide(app: &AppHandle) {
     panel.hide();
     let state = app.state::<PanelState>();
     // Detached until closed: it opens under the icon again.
-    if state.detached.swap(false, Ordering::Relaxed) {
-        let _ = app.emit(PanelDetached::NAME, false);
-    }
+    state.detached.store(false, Ordering::Relaxed);
     *state.hidden_at.lock().unwrap() = Some(Instant::now());
     restore_previous_app(&state);
     let _ = app.emit(PanelHidden::NAME, ());
@@ -186,6 +193,41 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
     app.state::<PanelState>()
         .pinned
         .store(pinned, Ordering::Relaxed);
+}
+
+/// Once the dragged-away panel is let go (no mouse button down), the window takes its place.
+fn wait_for_drop(app: &AppHandle) {
+    let handle = app.clone();
+    let dropped = Arc::new(AtomicBool::new(false));
+    tauri::async_runtime::spawn(async move {
+        while !dropped.load(Ordering::Relaxed) {
+            tokio::time::sleep(DROP_POLL).await;
+            let app = handle.clone();
+            let dropped = dropped.clone();
+            // AppKit on the main thread; a check queued behind another one finds it done.
+            let _ = handle.run_on_main_thread(move || {
+                if dropped.load(Ordering::Relaxed) || NSEvent::pressedMouseButtons() & 1 != 0 {
+                    return;
+                }
+                dropped.store(true, Ordering::Relaxed);
+                hand_over_to_window(&app);
+            });
+        }
+    });
+}
+
+fn hand_over_to_window(app: &AppHandle) {
+    let Ok(panel) = app.get_webview_panel(LABEL) else {
+        return;
+    };
+    // Closed while it was dragged.
+    if !panel.is_visible() {
+        return;
+    }
+    let frame = panel.as_panel().frame();
+    // y grows upwards, so the top edge is the origin's y plus the height.
+    let top_left = NSPoint::new(frame.origin.x, frame.origin.y + frame.size.height);
+    window::undock(app, top_left);
 }
 
 fn position_under(panel: &NSPanel, anchor: Anchor, state: &PanelState) {

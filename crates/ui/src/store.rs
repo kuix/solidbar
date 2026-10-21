@@ -82,8 +82,9 @@ pub struct Store {
     pub hold_hint: RwSignal<Option<String>>,
     hold_timer: StoredValue<Option<TimeoutHandle>>,
     pub pinned: RwSignal<bool>,
-    /// Dragged away from the menu bar, with the window buttons in the header.
-    pub detached: RwSignal<bool>,
+    /// The window (the panel dragged away from the menu bar) rather than the panel; it says so
+    /// before the page loads (`window.rs`).
+    pub windowed: bool,
     pub focus: RwSignal<Option<Focus>>,
     /// Polite live region text (confirmations).
     pub status: RwSignal<String>,
@@ -108,7 +109,10 @@ impl Store {
             hold_hint: RwSignal::new(None),
             hold_timer: StoredValue::new(None),
             pinned: RwSignal::new(false),
-            detached: RwSignal::new(false),
+            windowed: js_sys::Reflect::get(&window(), &"__SOLIDBAR_WINDOW__".into())
+                .ok()
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
             focus: RwSignal::new(None),
             status: RwSignal::new(String::new()),
             alert: RwSignal::new(String::new()),

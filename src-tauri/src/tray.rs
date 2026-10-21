@@ -9,6 +9,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::panel::{self, Anchor};
+use crate::window;
 
 const TRAY_ID: &str = "solidbar";
 const QUIT_ID: &str = "quit";
@@ -38,7 +39,12 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
                 ..
             } = event
             {
-                panel::toggle_from_tray(tray.app_handle(), anchor_of(tray));
+                let app = tray.app_handle();
+                if window::is_windowed(app) {
+                    window::toggle(app);
+                } else {
+                    panel::toggle_from_tray(app, anchor_of(tray));
+                }
             }
         })
         .build(app)?;

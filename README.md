@@ -25,7 +25,7 @@ Solidbar is not an official solidtime product.
 - **AI agents (MCP).** Turn on Settings › AI agents and Claude, or any MCP client, can list your projects and entries, log a week's worth of entries in one go and fix them, under the same rules as the panel. See [AI agents](#ai-agents-mcp).
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
-- **At home on the Mac.** Light and dark like macOS (or as set in Settings), the panel opens under the menu bar icon on whichever screen you click (drag it away by its header and it stays open, with the window buttons, until you close it), it can launch at login, and it [updates itself](#updates).
+- **At home on the Mac.** Light and dark like macOS (or as set in Settings), the panel opens under the menu bar icon on whichever screen you click (drag it away by its header and it becomes an ordinary window, with a Dock icon, until you dock it back to the menu bar), it can launch at login, and it [updates itself](#updates).
 - **Keyboard and VoiceOver first.** Every action has a shortcut, most of them a single key like in Harvest; the UI follows WAI-ARIA patterns and is checked against WCAG 2.2 AA with axe in light, dark and increased-contrast modes.
 
 ## Screenshots
@@ -101,7 +101,8 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `R` or `⌘R` | Refresh |
 | | `⌘,` | Settings |
 | | `⌘O` | Change the organization (in Settings) |
-| | `⎋` | Close |
+| | `⎋` | Close (the panel; a window stays) |
+| Window | `⌘W` / `⌘M` | Close / minimize the window |
 | Entry form | `⌘1`–`⌘3` | Recent project |
 | | `⌘[` `⌘]` | The day before / after |
 | | `⌥1`–`⌥8` | Whole hours |
