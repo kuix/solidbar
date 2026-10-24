@@ -33,6 +33,9 @@ const SCREEN_MARGIN: f64 = 8.0;
 /// A tray click this soon after the panel hid itself (on resign key) must not reopen it:
 /// the click on the icon is what took the key status away.
 const REOPEN_GUARD: Duration = Duration::from_millis(250);
+/// A resign key this soon after "Dock to menu bar" put the panel back isn't a click elsewhere
+/// (see `show_docked`).
+const DOCK_GUARD: Duration = Duration::from_millis(500);
 /// How far the panel can be from where it was put under the icon, in points, and still count
 /// as being there: frames can come back off by a rounding.
 const ANCHOR_SLACK: f64 = 1.0;
@@ -75,6 +78,8 @@ pub struct PanelState {
     /// The top left corner the panel was last put at under the icon.
     anchored_at: Mutex<Option<NSPoint>>,
     hidden_at: Mutex<Option<Instant>>,
+    /// When "Dock to menu bar" last put the panel back under the icon.
+    docked_at: Mutex<Option<Instant>>,
     /// The app that was frontmost when the panel opened, so focus can go back to it.
     previous_app_pid: Mutex<Option<i32>>,
 }
@@ -98,12 +103,23 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             .into(),
     );
     panel.set_has_shadow(true);
+    // The panel hides itself when it should (on resign key). AppKit's hiding when Solidbar
+    // stops being the active app, which it only ever is in window mode, would close it right
+    // after "Dock to menu bar".
+    panel.set_hides_on_deactivate(false);
 
     let handler = SolidbarPanelEvents::new();
     let handle = app.clone();
     handler.window_did_resign_key(move |_notification| {
         let state = handle.state::<PanelState>();
-        if !state.pinned.load(Ordering::Relaxed) && !state.detached.load(Ordering::Relaxed) {
+        let just_docked = state
+            .docked_at
+            .lock()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < DOCK_GUARD);
+        if just_docked {
+            take_key_back(&handle);
+        } else if !state.pinned.load(Ordering::Relaxed) && !state.detached.load(Ordering::Relaxed) {
             hide(&handle);
         }
     });
@@ -171,6 +187,30 @@ pub fn show(app: &AppHandle, anchor: Option<Anchor>, reason: ShowReason) {
     // Back to today, with fresh data if it's getting old.
     let engine = app.state::<Arc<Engine>>().inner().clone();
     tauri::async_runtime::spawn(async move { engine.panel_opened().await });
+}
+
+/// "Dock to menu bar": the panel under the icon in the window's place. Solidbar was the active
+/// app in window mode, and going back to an accessory app deactivates it, which takes the key
+/// status from the panel just shown; that isn't a click elsewhere, so the panel takes it back.
+pub fn show_docked(app: &AppHandle, anchor: Option<Anchor>) {
+    *app.state::<PanelState>().docked_at.lock().unwrap() = Some(Instant::now());
+    show(app, anchor, ShowReason::Toggle);
+}
+
+/// Makes the panel key again once AppKit is done handing the key status elsewhere.
+fn take_key_back(app: &AppHandle) {
+    let app = app.clone();
+    // From another thread, so it runs after this event rather than within it.
+    tauri::async_runtime::spawn(async move {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Ok(panel) = handle.get_webview_panel(LABEL)
+                && panel.is_visible()
+            {
+                panel.make_key_window();
+            }
+        });
+    });
 }
 
 pub fn hide(app: &AppHandle) {

@@ -97,7 +97,7 @@ pub fn dock(app: &AppHandle) {
         let _ = window.hide();
     }
     let _ = app.set_activation_policy(ActivationPolicy::Accessory);
-    panel::show(app, tray::anchor(app), ShowReason::Toggle);
+    panel::show_docked(app, tray::anchor(app));
 }
 
 /// From ⌥⌘N, the Dock icon, or the menu bar icon and ⌥⌘T (through `toggle`).
