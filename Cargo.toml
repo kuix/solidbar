@@ -5,7 +5,7 @@ members = ["crates/shared", "crates/core", "crates/ui", "src-tauri"]
 default-members = ["crates/shared", "crates/core", "src-tauri"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
