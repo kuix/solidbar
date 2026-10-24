@@ -21,7 +21,7 @@ Solidbar is not an official solidtime product.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
 - **Simple timer.** `S` continues the selected entry (or stops the running one); `⌘↩` in the entry form starts one, from an earlier start time too. Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
-- **No accidental deletes.** Hold `⌫` on an entry, or the Delete button in the form, for two seconds; let go earlier and the entry stays.
+- **No accidental deletes.** `⌫` on an entry, or Delete in the form, asks "Delete this entry?" first; `⎋` keeps it.
 - **AI agents (MCP).** Turn on Settings › AI agents and Claude, or any MCP client, can list your projects and entries, log a week's worth of entries in one go and fix them, under the same rules as the panel. See [AI agents](#ai-agents-mcp).
 - **One organization at a time.** With several, Solidbar asks which one after signing in; Settings changes it.
 - **24- or 12-hour times**, like macOS unless set otherwise in Settings; type `930`, `9:30` or `9:30 pm`.
@@ -96,7 +96,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `S` | Continue/stop; during a break, back to work |
 | | `B` | Take a break / end it (if the organization tracks breaks) |
 | | `⌘=` `⌘−` | Add/remove an hour |
-| | hold `⌫` | Delete (hold for 2 seconds; letting go earlier keeps the entry) |
+| | `⌫` | Delete (asks first: `↩` deletes, `⎋` keeps the entry) |
 | | `N` or `⌘N` | New entry |
 | | `R` or `⌘R` | Refresh |
 | | `⌘,` | Settings |
@@ -110,7 +110,6 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `Space` or type | Open the project list (typing searches) |
 | | `↑` `↓` in a time | 15 minutes earlier/later (`⇧` for an hour) |
 | | `↩` / `⌘↩` | Save / start a timer (from the Start time, if you changed it; a running timer stops there) |
-| | hold **Delete** | Delete: hold the button, or `Space` on it, for 2 seconds |
 
 The global shortcuts can be changed in Settings.
 

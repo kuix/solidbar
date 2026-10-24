@@ -17,7 +17,6 @@
   --link: #4338ca;
   --focus: #4f46e5;
   --danger: #b42318;
-  --on-danger: #ffffff;
   --running: #15803d;
   --no-project: #8e8e93;
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
@@ -39,7 +38,6 @@
     --link: #a5b4fc;
     --focus: #a5b4fc;
     --danger: #ff8a80;
-    --on-danger: #2a0b08;
     --running: #4ade80;
     --no-project: #98989d;
     --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
@@ -60,7 +58,6 @@
   --link: #a5b4fc;
   --focus: #a5b4fc;
   --danger: #ff8a80;
-  --on-danger: #2a0b08;
   --running: #4ade80;
   --no-project: #98989d;
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
@@ -119,15 +116,6 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
-  }
-
-  /* Holding to delete keeps its progress: it's what tells how long is left. */
-  .hold-button.holding .hold-fill {
-    transition: clip-path var(--hold) linear !important;
-  }
-
-  .entry-row.holding .hold-progress {
-    transition: transform var(--hold) linear !important;
   }
 }
 
@@ -209,43 +197,12 @@ button.danger {
   color: var(--danger);
 }
 
-/* The form's Delete: held down, it fills with red from the left (the label taking the fill's
-   colour as it passes) and deletes once full. */
-.hold-button {
-  position: relative;
-  overflow: hidden;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.hold-fill {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--danger);
-  color: var(--on-danger);
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 160ms ease-out;
-  pointer-events: none;
-}
-
-.hold-button.holding .hold-fill {
-  clip-path: inset(0 0 0 0);
-  transition: clip-path var(--hold) linear;
-}
-
-/* Apart from the other actions, so its hint grows into the free space and nothing moves. */
+/* Apart from the other actions, so its question grows into the free space and nothing moves. */
 .delete-area {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.delete-area .hold-hint {
-  padding: 0;
 }
 
 .form-confirm {
@@ -674,33 +631,6 @@ code {
   grid-template-columns: 1fr auto;
   align-items: center;
   border-radius: 8px;
-}
-
-/* ⌫ held on a row: a bar along its bottom fills up until the entry goes. */
-.hold-progress {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 0;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--danger);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 160ms ease-out;
-  pointer-events: none;
-}
-
-.entry-row.holding .hold-progress {
-  transform: scaleX(1);
-  transition: transform var(--hold) linear;
-}
-
-.hold-hint {
-  margin: 0;
-  padding: 2px 8px 6px 26px;
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 .entry-row:hover,

@@ -21,8 +21,8 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] VO announces the keyboard shortcuts of an entry (aria-keyshortcuts) with the hint delay.
 - [ ] With Settings › Single-key shortcuts off, N, T, S, B, E and R do nothing in the list, and VO no longer announces them (⌘N, ↩ and the arrows still work).
 - [ ] `⌘=` announces "Added 1 hour" (and how many later entries moved); the duration updates.
-- [ ] Holding `⌫` on an entry for 2 seconds deletes it and announces "Time entry deleted"; letting go earlier announces "Hold ⌫ to delete" and keeps it.
-- [ ] The form's Delete reads its description ("Hold for 2 seconds, or hold Space, …"); holding Space deletes; `VO-Space` (which can't hold) asks "Delete this entry?" with Delete and Keep, focus on Delete.
+- [ ] `⌫` on an entry asks "Delete this entry?" with focus on "Delete ↩"; `⎋` returns to the entry; `↩` deletes and announces "Time entry deleted".
+- [ ] The form's Delete asks "Delete this entry?" with Delete and Keep, focus on Delete; `⎋` keeps the entry and returns to the form's Delete.
 - [ ] Rotor › Buttons › "Delete entry" on a row asks "Delete this entry?"; `⎋` returns to the entry; `↩` deletes.
 - [ ] `S` announces "Timer started"; the row reads "timer running".
 - [ ] A continued entry reads as one row with its total and "2 entries", and as "collapsed"; `→` reads it as "expanded" and `↓` reads each entry ("09:00 to 10:30, 1 hour 30 minutes"); `←` returns to the row, collapsed.
