@@ -25,6 +25,7 @@ use crate::{panel, tray};
 
 pub const LABEL: &str = "window";
 
+pub const MENU_HIDE: &str = "app-hide";
 pub const MENU_MINIMIZE: &str = "window-minimize";
 pub const MENU_ZOOM: &str = "window-zoom";
 pub const MENU_CLOSE: &str = "window-close";
@@ -125,8 +126,18 @@ pub fn toggle(app: &AppHandle) {
     }
 }
 
-/// Window › Minimize, Zoom and Close, which only ever act on the window.
+/// Solidbar › Hide (⌘H), and Window › Minimize, Zoom and Close, which only ever act on the
+/// window.
 pub fn menu_event(app: &AppHandle, id: &str) {
+    if id == MENU_HIDE {
+        // As any app hides; in the panel's place, the panel goes away as with ⎋.
+        if is_windowed(app) {
+            let _ = app.hide();
+        } else {
+            panel::hide(app);
+        }
+        return;
+    }
     let Some(window) = app.get_webview_window(LABEL).filter(|_| is_windowed(app)) else {
         return;
     };

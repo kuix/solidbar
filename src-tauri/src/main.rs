@@ -128,6 +128,17 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &PredefinedMenuItem::about(app, Some("About Solidbar"), None)?,
             &PredefinedMenuItem::separator(app)?,
+            // Ours rather than AppKit's, which would hide the panel without it knowing.
+            &MenuItem::with_id(
+                app,
+                window::MENU_HIDE,
+                "Hide Solidbar",
+                true,
+                Some("CmdOrCtrl+H"),
+            )?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, Some("Quit Solidbar"))?,
         ],
     )?;

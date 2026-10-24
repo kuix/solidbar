@@ -103,6 +103,7 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | | `⌘O` | Change the organization (in Settings) |
 | | `⎋` | Close (the panel; a window stays) |
 | Window | `⌘W` / `⌘M` | Close / minimize the window |
+| | `⌘H` | Hide Solidbar (the panel just closes) |
 | Entry form | `⌘1`–`⌘3` | Recent project |
 | | `⌘[` `⌘]` | The day before / after |
 | | `⌥1`–`⌥8` | Whole hours |
