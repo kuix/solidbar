@@ -38,7 +38,7 @@ test("Keep or ⎋ keeps the entry, and the form open", async ({ page }) => {
   await expect(deleteButton(page)).toBeFocused();
 
   await page.keyboard.press("Space");
-  await expect(question).toBeVisible();
+  await expect(question.getByRole("button", { name: "Delete" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(question).toHaveCount(0);
   await expect(deleteButton(page)).toBeFocused();
