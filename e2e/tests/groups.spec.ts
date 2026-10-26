@@ -7,6 +7,8 @@ async function open(page: Page, fixture: Fixture = continued()) {
   await installFakeBackend(page, fixture);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
+  // The row keys act on the selected row, which has the focus once it's selected.
+  await expect(page.locator("#entry-e1")).toBeFocused();
 }
 
 test("a continued entry shares its row; → shows its entries and ← hides them", async ({ page }) => {
