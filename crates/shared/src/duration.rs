@@ -19,15 +19,21 @@ pub enum DurationError {
 
 /// Parses a duration typed by a person into whole minutes.
 ///
-/// Accepted forms: hours (`2`, `1.5`, `1,5`), `H:MM` (`1:30`), unit suffixes (`2h`, `45m`,
-/// `1h30m`, `1h 30`). A bare number means hours, as in Harvest.
+/// Accepted forms: hours (`2`, `1.5`, `1,5`), `H:MM` (`1:30`, or `:30` without the hours),
+/// unit suffixes (`2h`, `45m`, `1h30m`, `1h 30`). A bare number means hours, as in Harvest.
 pub fn parse_minutes(input: &str) -> Result<u32, DurationError> {
     let text = input.trim().to_ascii_lowercase().replace(',', ".");
     if text.is_empty() {
         return Err(DurationError::Empty);
     }
     let minutes = if let Some((hours, minutes)) = text.split_once(':') {
-        whole_number(hours)? * 60 + minutes_of_hour(minutes)?
+        // `:30` is `0:30`, as `.5` is `0.5`.
+        let hours = if hours.is_empty() {
+            0
+        } else {
+            whole_number(hours)?
+        };
+        hours * 60 + minutes_of_hour(minutes)?
     } else if let Some((hours, rest)) = text.split_once('h') {
         let rest = rest.trim();
         let extra = if rest.is_empty() {
@@ -108,7 +114,17 @@ mod tests {
         assert_eq!(parse_minutes("2:05"), Ok(125));
         assert_eq!(parse_minutes("1:60"), Err(DurationError::Invalid));
         assert_eq!(parse_minutes("1:"), Err(DurationError::Invalid));
-        assert_eq!(parse_minutes(":30"), Err(DurationError::Invalid));
+    }
+
+    #[test]
+    fn colon_without_hours_is_minutes() {
+        assert_eq!(parse_minutes(":30"), Ok(30));
+        assert_eq!(parse_minutes(" :15 "), Ok(15));
+        assert_eq!(parse_minutes(":05"), Ok(5));
+        assert_eq!(parse_minutes(":00"), Err(DurationError::Zero));
+        assert_eq!(parse_minutes(":60"), Err(DurationError::Invalid));
+        assert_eq!(parse_minutes(":"), Err(DurationError::Invalid));
+        assert_eq!(parse_minutes(": 30"), Err(DurationError::Invalid));
     }
 
     #[test]
