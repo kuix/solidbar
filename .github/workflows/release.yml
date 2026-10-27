@@ -104,13 +104,19 @@ jobs:
           cargo tauri build "${args[@]}"
 
       # The bundler notarizes the app; notarizing the DMG too lets Gatekeeper accept it offline.
+      # Stapling has lost its connection to Apple after the notarization was accepted, so it's
+      # tried a few times; a DMG left unstapled is still notarized, and Gatekeeper checks it online.
       - name: Notarize the DMG
         if: env.APPLE_CERTIFICATE != '' && env.APPLE_API_KEY_PATH != ''
         run: |
           dmg="$(ls "$BUNDLE"/dmg/*.dmg)"
           xcrun notarytool submit "$dmg" --wait \
             --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
-          xcrun stapler staple "$dmg"
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple "$dmg" && exit 0
+            sleep 30
+          done
+          echo "::warning::The DMG is notarized but not stapled; Gatekeeper checks it online."
 
       - name: Check the signatures
         if: env.APPLE_CERTIFICATE != ''
