@@ -192,6 +192,20 @@ pub struct Catalog {
     /// Up to five recently used pairs, most recent first. The project list starts with the
     /// first three (⌘1–⌘3).
     pub recents: Vec<WorkOption>,
+    /// The organization's favorites, which a new entry's form starts with (⌃1–⌃9). Those of
+    /// archived projects or done tasks are left out.
+    #[serde(default)]
+    pub favorites: Vec<FavoriteView>,
+}
+
+/// A favorite as the entry form offers it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FavoriteView {
+    pub option: WorkOption,
+    pub description: String,
+    /// `H:MM`, or empty when it has none.
+    pub duration: String,
+    pub billable: bool,
 }
 
 /// What the entry form starts with.

@@ -70,6 +70,13 @@ pub fn chevron_down() -> impl IntoView {
     icon("m3 6 5 5 5-5")
 }
 
+/// A star, for favorites; filled by the stylesheet when pressed.
+pub fn star() -> impl IntoView {
+    icon(
+        "M8 2.1 9.59 6.42 14.18 6.59 10.57 9.43 11.82 13.86 8 11.3 4.18 13.86 5.43 9.43 1.82 6.59 6.41 6.42Z",
+    )
+}
+
 /// A cup, for breaks.
 pub fn cup() -> impl IntoView {
     icon(

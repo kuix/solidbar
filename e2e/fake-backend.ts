@@ -131,6 +131,35 @@ export async function installFakeBackend(page: Page, fixture: Fixture) {
         state.app.choose_org = false;
         changed();
       },
+      // Like the engine: the same project, task and notes replace a favorite; `false` removes it.
+      set_favorite: (args) => {
+        const favorites = (state.catalog.favorites ??= []);
+        const description = args.description.trim();
+        const index = favorites.findIndex(
+          (favorite: any) =>
+            favorite.option.project_id === args.project_id &&
+            favorite.option.task_id === args.task_id &&
+            favorite.description === description,
+        );
+        if (args.favorite) {
+          const option = state.catalog.options.find(
+            (option: any) => option.project_id === args.project_id && option.task_id === args.task_id,
+          );
+          const typed = args.duration.trim();
+          const duration = typed ? hm(minutes(typed) * 60) : "";
+          const favorite = { option, description, duration, billable: args.billable };
+          if (index >= 0) favorites[index] = favorite;
+          else favorites.push(favorite);
+        } else if (index >= 0) {
+          favorites.splice(index, 1);
+        }
+        emit("view://catalog", structuredClone(state.catalog));
+        emit("view://notice", {
+          kind: "info",
+          text: args.favorite ? "Added to favorites" : "Removed from favorites",
+        });
+        return null;
+      },
       update_settings: (patch) => {
         for (const [key, value] of Object.entries(patch)) {
           if (value !== null) state.app.settings[key] = value;

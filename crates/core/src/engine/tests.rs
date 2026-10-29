@@ -6,7 +6,7 @@ use jiff::SignedDuration;
 use jiff::tz::TimeZone;
 use serde_json::{Value, json};
 use solidbar_shared::instance::{DEEP_LINK_REDIRECT, InstanceSettings, Redirect};
-use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FormArgs, TimerSource};
+use solidbar_shared::ipc::{AdjustArgs, EntryDraft, FavoriteArgs, FormArgs, TimerSource};
 use solidbar_shared::settings::{Settings, SettingsPatch};
 use solidbar_shared::view::{AppView, AuthView, Catalog, EntryKind, Notice};
 use wiremock::matchers::{
@@ -1118,6 +1118,94 @@ async fn single_key_shortcuts_can_be_turned_off_and_stay_off() {
     )
     .unwrap();
     assert!(!saved.single_key_shortcuts);
+}
+
+fn favorite(description: &str, duration: &str, favorite: bool) -> FavoriteArgs {
+    FavoriteArgs {
+        project_id: Some("p1".to_owned()),
+        task_id: Some("t1".to_owned()),
+        description: description.to_owned(),
+        duration: duration.to_owned(),
+        billable: true,
+        favorite,
+    }
+}
+
+#[tokio::test]
+async fn favorites_are_kept_with_the_settings_replaced_and_removed() {
+    let server = MockServer::start().await;
+    let harness = signed_in_with_week(&server, vec![]).await;
+    let favorites = || harness.engine.catalog_view().favorites;
+
+    harness
+        .engine
+        .set_favorite(&favorite(" Weekly ", "1", true))
+        .unwrap();
+    harness
+        .engine
+        .set_favorite(&favorite("", "", true))
+        .unwrap();
+    let shown = favorites();
+    assert_eq!(shown.len(), 2);
+    assert_eq!(shown[0].option.label, "Design system › Header");
+    assert_eq!(shown[0].description, "Weekly");
+    assert_eq!(shown[0].duration, "1:00");
+    assert!(shown[0].billable);
+    assert_eq!(shown[1].duration, "");
+
+    // The same project, task and notes again replace the favorite, in its place.
+    harness
+        .engine
+        .set_favorite(&favorite("Weekly", "1:30", true))
+        .unwrap();
+    assert_eq!(favorites().len(), 2);
+    assert_eq!(favorites()[0].duration, "1:30");
+
+    harness
+        .engine
+        .set_favorite(&favorite("Weekly", "", false))
+        .unwrap();
+    let left: Vec<String> = favorites()
+        .into_iter()
+        .map(|favorite| favorite.description)
+        .collect();
+    assert_eq!(left, [""]);
+    assert!(
+        harness
+            .sink
+            .notices()
+            .iter()
+            .any(|notice| notice.text == "Removed from favorites")
+    );
+
+    let saved: Settings = serde_json::from_slice(
+        &std::fs::read(harness.directory.path().join("settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved.favorites[MEMBER].len(), 1);
+}
+
+#[tokio::test]
+async fn favorites_need_a_valid_duration_and_an_open_project() {
+    let server = MockServer::start().await;
+    let harness = signed_in_with_week(&server, vec![]).await;
+
+    assert!(
+        harness
+            .engine
+            .set_favorite(&favorite("Weekly", "abc", true))
+            .is_err()
+    );
+    // A project no longer there (archived, or deleted on the web) isn't offered.
+    harness
+        .engine
+        .set_favorite(&FavoriteArgs {
+            project_id: Some("gone".to_owned()),
+            task_id: None,
+            ..favorite("Weekly", "1", true)
+        })
+        .unwrap();
+    assert!(harness.engine.catalog_view().favorites.is_empty());
 }
 
 /// Mounts stopping the running timer `live` at `end`, and creating a timer from `start`.

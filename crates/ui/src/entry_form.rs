@@ -4,12 +4,15 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use solidbar_shared::clock::Time;
 use solidbar_shared::duration::parse_minutes;
-use solidbar_shared::ipc::{EntryDraft, FormArgs, PrepareForm, SaveEntry};
+use solidbar_shared::ipc::{
+    EntryDraft, FavoriteArgs, FormArgs, PrepareForm, SaveEntry, SetFavorite,
+};
 use solidbar_shared::picker;
-use solidbar_shared::view::{EntryKind, FormInit, WorkOption};
+use solidbar_shared::view::{EntryKind, FavoriteView, FormInit, WorkOption};
 use wasm_bindgen::JsCast;
 use web_sys::{KeyboardEvent, MouseEvent};
 
+use crate::format::spoken_duration;
 use crate::icons;
 use crate::ipc::call;
 use crate::keymap::{Keys, focus_element};
@@ -95,6 +98,20 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     let saving = RwSignal::new(false);
     let attempted = RwSignal::new(false);
     let recents = Memo::new(move |_| store.catalog.with(|catalog| catalog.recents.clone()));
+    let favorites = Memo::new(move |_| store.catalog.with(|catalog| catalog.favorites.clone()));
+    // The form holds a favorite: one with the same project, task and notes.
+    let is_favorite = Memo::new(move |_| {
+        let (project_id, task_id) =
+            work.with(|work| (work.project_id.clone(), work.task_id.clone()));
+        let notes = description.with(|text| text.trim().to_owned());
+        favorites.with(|favorites| {
+            favorites.iter().any(|favorite| {
+                favorite.option.project_id == project_id
+                    && favorite.option.task_id == task_id
+                    && favorite.description == notes
+            })
+        })
+    });
 
     let duration_problem = Memo::new(move |_| {
         let text = duration.get();
@@ -118,6 +135,46 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         } else if !editing {
             billable.set(option.billable);
         }
+    });
+
+    // ☆ (⌘D): keeps what the form holds as a favorite, or forgets the favorite it holds.
+    let toggle_favorite = Callback::new(move |()| {
+        if is_break.get_untracked() {
+            return;
+        }
+        let (project_id, task_id) =
+            work.with_untracked(|work| (work.project_id.clone(), work.task_id.clone()));
+        let args = FavoriteArgs {
+            project_id,
+            task_id,
+            description: description.get_untracked(),
+            // A running timer and a group have no duration in the form.
+            duration: if running || in_group {
+                String::new()
+            } else {
+                duration.get_untracked()
+            },
+            billable: billable.get_untracked(),
+            favorite: !is_favorite.get_untracked(),
+        };
+        spawn_local(async move {
+            match call::<SetFavorite>(&args).await {
+                Ok(()) => error.set(None),
+                Err(problem) => error.set(Some(problem.message)),
+            }
+        });
+    });
+
+    // A favorite fills the form in, and ↩ saves it from the project button.
+    let apply_favorite = Callback::new(move |favorite: FavoriteView| {
+        pick.run(favorite.option);
+        description.set(favorite.description);
+        if !favorite.duration.is_empty() {
+            duration.set(favorite.duration);
+        }
+        billable.set(favorite.billable);
+        error.set(None);
+        focus_element("work-button");
     });
 
     let entry_id = init.entry_id.clone();
@@ -219,6 +276,21 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                 }
                 None => false,
             }
+        } else if keys.control && !keys.meta && !keys.alt && !keys.shift && !editing {
+            // The favorites a new entry's form starts with.
+            let index = keys.digit().unwrap_or_default() as usize;
+            let favorite =
+                favorites.with_untracked(|favorites| favorites.get(index.wrapping_sub(1)).cloned());
+            match favorite {
+                Some(favorite) => {
+                    apply_favorite.run(favorite);
+                    true
+                }
+                None => false,
+            }
+        } else if keys.is("Meta+KeyD") && !is_break.get_untracked() {
+            toggle_favorite.run(());
+            true
         } else if keys.is("Meta+BracketLeft") || keys.is("Meta+BracketRight") {
             store.shift_form_day(if keys.is("Meta+BracketLeft") { -1 } else { 1 });
             true
@@ -266,8 +338,48 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         >
             // Only the fields scroll; the buttons stay at the bottom of the panel.
             <div class="form-body" on:scroll=|_| place_work_popup()>
-                <h2 id="form-title">{title}</h2>
+                <div class="form-title">
+                    <h2 id="form-title">{title}</h2>
+                    <Show when=move || !is_break.get()>
+                        <button
+                            type="button"
+                            class="icon-button favorite-button"
+                            aria-label="Favorite"
+                            aria-pressed=move || is_favorite.get().to_string()
+                            aria-keyshortcuts="Meta+D"
+                            title=move || {
+                                if is_favorite.get() {
+                                    "Remove from favorites (⌘D)"
+                                } else {
+                                    "Add to favorites (⌘D)"
+                                }
+                            }
+                            on:click=move |_| toggle_favorite.run(())
+                        >
+                            {icons::star()}
+                        </button>
+                    </Show>
+                </div>
                 {group_note.map(|note| view! { <p class="group-note">{note}</p> })}
+                <Show when=move || !editing && favorites.with(|favorites| !favorites.is_empty())>
+                    <fieldset class="favorites">
+                        <legend>"Favorites"</legend>
+                        <div class="chips">
+                            {move || {
+                                favorites
+                                    .get()
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(index, favorite)| {
+                                        view! {
+                                            <FavoriteChip favorite number=index + 1 apply=apply_favorite />
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                    </fieldset>
+                </Show>
                 <WorkPicker work pick />
                 <label for="notes">"Notes"</label>
                 <textarea
@@ -374,6 +486,50 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                 </div>
             </div>
         </form>
+    }
+}
+
+/// A favorite in a new entry's form, named by its notes (or its project) with its duration.
+/// A click or ⌃1–⌃9 fills the form in with it.
+#[component]
+fn FavoriteChip(
+    favorite: FavoriteView,
+    number: usize,
+    apply: Callback<FavoriteView>,
+) -> impl IntoView {
+    let name = if favorite.description.is_empty() {
+        favorite.option.label.clone()
+    } else {
+        favorite.description.clone()
+    };
+    // What it shows first, then the project and the duration in words.
+    let mut spoken = name.clone();
+    if !favorite.description.is_empty() {
+        spoken.push_str(&format!(", {}", favorite.option.label));
+    }
+    if let Ok(minutes) = parse_minutes(&favorite.duration) {
+        spoken.push_str(&format!(", {}", spoken_duration(i64::from(minutes) * 60)));
+    }
+    let shortcut = (number <= 9).then(|| format!("Control+{number}"));
+    let title = match &shortcut {
+        Some(_) => format!("{} (⌃{number})", favorite.option.label),
+        None => favorite.option.label.clone(),
+    };
+    let marker = option_marker(&favorite.option);
+    let duration = favorite.duration.clone();
+    view! {
+        <button
+            type="button"
+            class="chip favorite"
+            aria-label=spoken
+            aria-keyshortcuts=shortcut
+            title=title
+            on:click=move |_| apply.run(favorite.clone())
+        >
+            {marker}
+            <span class="name">{name}</span>
+            {(!duration.is_empty()).then(|| view! { <span class="duration">{duration}</span> })}
+        </button>
     }
 }
 

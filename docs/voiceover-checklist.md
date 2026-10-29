@@ -37,6 +37,8 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] Typing on the pop-up button opens the search with that letter; VO reads the number of results; `↓`/`↑` read each option; `↩` picks it and returns to the button, which reads the new choice.
 - [ ] `⌘1`/`⌘2` pick recent projects; VO reads the new value of the pop-up button.
 - [ ] `⌥2` selects "2 hours" (button reads as selected) and fills the duration.
+- [ ] `⌘D` presses "Favorite, toggle button" and VO announces "Added to favorites"; `⌘D` again announces "Removed from favorites".
+- [ ] With favorites, a new entry's form has a "Favorites" group whose buttons read as e.g. "Weekly, Internal › Planning, 1 hour" with `⌃1`; `⌃1` fills the form in, VO lands on the pop-up button, which reads the favorite's project, and `↩` saves.
 - [ ] An invalid duration reads as invalid with its error message.
 - [ ] `↩` saves, VO announces "Added 2 hours", and focus returns to the list.
 - [ ] `⎋` (with the list closed) cancels and focus returns to the entry it came from.

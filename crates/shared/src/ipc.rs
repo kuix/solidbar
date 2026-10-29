@@ -127,6 +127,19 @@ pub struct EntryDraft {
     pub start_changed: bool,
 }
 
+/// The entry form's ☆: keeps what the form holds as a favorite, or forgets it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FavoriteArgs {
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub description: String,
+    /// As typed, e.g. `1:30`; empty for none.
+    pub duration: String,
+    pub billable: bool,
+    /// `false` removes the favorite with this project, task and notes.
+    pub favorite: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntriesArgs {
     pub ids: Vec<String>,
@@ -201,6 +214,8 @@ commands! {
     StopTimer = "stop_timer", () => ();
     /// Stops the work timer and starts a break at the same moment.
     StartBreak = "start_break", () => ();
+    /// Adds a favorite (replacing one with the same project, task and notes) or removes it.
+    SetFavorite = "set_favorite", FavoriteArgs => ();
     UpdateSettings = "update_settings", SettingsPatch => ();
     SetShortcut = "set_shortcut", ShortcutArgs => ();
     SuspendShortcuts = "shortcuts_suspend", () => ();

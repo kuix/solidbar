@@ -65,6 +65,7 @@ const catalog = {
     { project_id: "p1", task_id: "t1", label: "Design system › Header", task_name: "Header", client_name: "Kuix", color: "#ef5350", billable: true },
     { project_id: "p3", task_id: null, label: "Support", client_name: "ACME", color: "#66bb6a", billable: true },
   ],
+  favorites: [],
 };
 
 export function signedIn(): Fixture {

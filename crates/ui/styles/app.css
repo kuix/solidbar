@@ -874,6 +874,47 @@ code {
   font-weight: 600;
 }
 
+/* The title with the favorite star at its right end, the star not adding to its height. */
+.form-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -5px 0;
+}
+
+.favorite-button .icon {
+  stroke-linejoin: round;
+}
+
+.favorite-button[aria-pressed="true"] .icon {
+  fill: currentColor;
+}
+
+.favorites .chips {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.chip.favorite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 100%;
+  padding: 3px 8px;
+}
+
+.chip.favorite .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip.favorite .duration {
+  color: var(--text-secondary);
+}
+
 .work-picker {
   position: relative;
 }

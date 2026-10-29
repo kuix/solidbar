@@ -8,8 +8,8 @@ use solidbar_core::mcp::AgentServer;
 use solidbar_shared::instance::InstanceSettings;
 use solidbar_shared::ipc::{
     AdjustArgs, AgentAccessArgs, AutostartArgs, BootstrapView, CommandError, DateArgs, EntriesArgs,
-    EntryDraft, FormArgs, MembershipArgs, PinArgs, RefreshArgs, ShortcutArgs, TextArgs,
-    TimerSource,
+    EntryDraft, FavoriteArgs, FormArgs, MembershipArgs, PinArgs, RefreshArgs, ShortcutArgs,
+    TextArgs, TimerSource,
 };
 use solidbar_shared::settings::SettingsPatch;
 use solidbar_shared::update::UpdateView;
@@ -95,6 +95,11 @@ pub async fn stop_timer(engine: EngineState<'_>) -> Reply {
 #[tauri::command]
 pub async fn start_break(engine: EngineState<'_>) -> Reply {
     engine.start_break().await
+}
+
+#[tauri::command]
+pub fn set_favorite(engine: EngineState<'_>, args: FavoriteArgs) -> Reply {
+    engine.set_favorite(&args)
 }
 
 #[tauri::command]

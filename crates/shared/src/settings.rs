@@ -38,6 +38,31 @@ pub struct Settings {
     pub launch_at_login_offered: bool,
     /// The MCP server for AI agents.
     pub agents: AgentAccess,
+    /// Membership id → its favorites, in the order they were added.
+    pub favorites: BTreeMap<String, Vec<Favorite>>,
+}
+
+/// An entry kept to be added again with a click (the entry form's ☆).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Favorite {
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    /// `None` leaves the duration to be typed.
+    #[serde(default)]
+    pub minutes: Option<u32>,
+    #[serde(default)]
+    pub billable: bool,
+}
+
+impl Favorite {
+    /// The same work and notes: saved again, a favorite replaces the one it's like.
+    pub fn is_like(&self, other: &Favorite) -> bool {
+        self.project_id == other.project_id
+            && self.task_id == other.task_id
+            && self.description == other.description
+    }
 }
 
 /// The local MCP server that lets AI agents read and add time entries (Settings › AI agents).
@@ -67,6 +92,7 @@ impl Default for Settings {
             single_key_shortcuts: true,
             launch_at_login_offered: false,
             agents: AgentAccess::default(),
+            favorites: BTreeMap::new(),
         }
     }
 }

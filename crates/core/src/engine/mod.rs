@@ -20,9 +20,10 @@ use jiff::{SignedDuration, Timestamp};
 use solidbar_shared::duration::{format_hm, parse_minutes};
 use solidbar_shared::instance::{InstanceSettings, Redirect};
 use solidbar_shared::ipc::{
-    AdjustArgs, BootstrapView, CommandError, EntryDraft, FormArgs, ShortcutArgs, TimerSource,
+    AdjustArgs, BootstrapView, CommandError, EntryDraft, FavoriteArgs, FormArgs, ShortcutArgs,
+    TimerSource,
 };
-use solidbar_shared::settings::{AgentAccess, Settings, SettingsPatch};
+use solidbar_shared::settings::{AgentAccess, Favorite, Settings, SettingsPatch};
 use solidbar_shared::view::{
     AgentServerView, AppView, Catalog, EntryKind, FormInit, Notice, NoticeKind,
 };
@@ -1216,6 +1217,60 @@ impl Engine {
             }
             Err(error) => Err(self.fail(error)),
         }
+    }
+
+    // --- Favorites --------------------------------------------------------------------------
+
+    /// Keeps the entry form's project, task, notes, duration and billable as a favorite of the
+    /// active organization, replacing one with the same project, task and notes; or removes
+    /// that one. They're kept with the settings, so they outlive signing out.
+    pub fn set_favorite(&self, args: &FavoriteArgs) -> Result<(), CommandError> {
+        let membership = self.active_membership()?;
+        if args.task_id.is_some() && args.project_id.is_none() {
+            return Err(CommandError::new("Choose the project of the task"));
+        }
+        let minutes = match args.duration.trim() {
+            "" => None,
+            typed => Some(parse_minutes(typed).map_err(user_error)?),
+        };
+        let favorite = Favorite {
+            project_id: args.project_id.clone(),
+            task_id: args.task_id.clone(),
+            description: args.description.trim().to_owned(),
+            minutes,
+            billable: args.billable,
+        };
+        {
+            let mut state = self.state();
+            let favorites = state
+                .settings
+                .favorites
+                .entry(membership.id.clone())
+                .or_default();
+            let existing = favorites.iter().position(|kept| kept.is_like(&favorite));
+            match (args.favorite, existing) {
+                (true, Some(index)) => favorites[index] = favorite,
+                (true, None) => favorites.push(favorite),
+                (false, Some(index)) => {
+                    favorites.remove(index);
+                }
+                (false, None) => {}
+            }
+            if favorites.is_empty() {
+                state.settings.favorites.remove(&membership.id);
+            }
+            self.files.save_settings(&state.settings);
+        }
+        self.notice(
+            NoticeKind::Info,
+            if args.favorite {
+                "Added to favorites"
+            } else {
+                "Removed from favorites"
+            },
+        );
+        self.emit_catalog();
+        Ok(())
     }
 
     // --- Settings ---------------------------------------------------------------------------

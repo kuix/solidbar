@@ -57,6 +57,10 @@ export function showcase(): Fixture {
       option("p1", "t1", "Design system › Header", "Kuix", "#ef5350"),
       option("p3", null, "Support", "ACME", "#66bb6a"),
     ],
+    favorites: [
+      { option: option("p5", "t6", "Internal › Planning", null, "#ffa726"), description: "Weekly", duration: "1:00", billable: false },
+      { option: option("p3", null, "Support", "ACME", "#66bb6a"), description: "Standup", duration: "0:15", billable: true },
+    ],
   };
   fixture.app.timer = {
     entry_id: "e3",

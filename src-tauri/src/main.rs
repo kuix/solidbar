@@ -57,6 +57,7 @@ fn main() {
             commands::start_timer,
             commands::stop_timer,
             commands::start_break,
+            commands::set_favorite,
             commands::update_settings,
             commands::set_shortcut,
             commands::shortcuts_suspend,

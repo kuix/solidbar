@@ -5,8 +5,8 @@ use jiff::civil::Date;
 use jiff::tz::TimeZone;
 use solidbar_shared::duration::format_hm;
 use solidbar_shared::view::{
-    AppView, AuthView, Catalog, DayView, EntryKind, EntryView, OrgView, TimerView, TrayView,
-    WeekView, WorkOption,
+    AppView, AuthView, Catalog, DayView, EntryKind, EntryView, FavoriteView, OrgView, TimerView,
+    TrayView, WeekView, WorkOption,
 };
 
 use super::state::{AuthPhase, CatalogData, State};
@@ -342,7 +342,38 @@ pub(crate) fn catalog_view(state: &State) -> solidbar_shared::view::Catalog {
         })
         .unwrap_or_default();
 
-    Catalog { options, recents }
+    let favorites = state
+        .active_membership()
+        .and_then(|membership| state.settings.favorites.get(&membership.id))
+        .map(|favorites| {
+            favorites
+                .iter()
+                .filter_map(|favorite| {
+                    let option = match &favorite.project_id {
+                        Some(project_id) => {
+                            work_option(catalog, project_id, favorite.task_id.as_deref())?
+                        }
+                        None => no_project_option(),
+                    };
+                    Some(FavoriteView {
+                        option,
+                        description: favorite.description.clone(),
+                        duration: favorite
+                            .minutes
+                            .map(|minutes| format_hm(i64::from(minutes) * 60))
+                            .unwrap_or_default(),
+                        billable: favorite.billable,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Catalog {
+        options,
+        recents,
+        favorites,
+    }
 }
 
 /// A picker option for an active project, optionally with one of its open tasks.

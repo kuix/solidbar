@@ -18,6 +18,7 @@ Solidbar is not an official solidtime product.
 
 - **Today first.** The panel opens on today, with a week strip of daily totals above it.
 - **Fast entry.** `N`, pick a recent project with `⌘1`–`⌘3` or type to search, `⌥1`–`⌥8` for whole hours, `↩`. The project list starts with the three most recently used, then groups projects under their clients, each with its tasks. New entries continue where the day's last entry ended; the form's header moves an entry to another day (`⌘[` / `⌘]`).
+- **Favorites.** The star in the entry form (`⌘D`) keeps its project, task, notes and duration, like a weekly meeting. A new entry's form starts with them: a click or `⌃1`–`⌃9` fills it in, `↩` saves. The star again forgets one.
 - **±1 hour per row.** `⌘=` / `⌘−` lengthen or shorten an entry; later entries of the day move along so nothing overlaps.
 - **Simple timer.** `S` continues the selected entry (or stops the running one); `⌘↩` in the entry form starts one, from an earlier start time too. Like solidtime's own list, entries continued on the same day share one row with their total; `→` shows them one by one. The menu bar shows the running time, or today's total.
 - **Breaks**, where the organization tracks them: `B` takes a break and ends it, `S` (or `⌥⌘S`) goes back to the work before it. Breaks don't count toward the day's total.
@@ -32,7 +33,7 @@ Solidbar is not an official solidtime product.
 
 | Today | New entry |
 |---|---|
-| ![Today's entries with a running timer, and the week's daily totals](docs/images/today-light.png) | ![The entry form in dark mode, searching projects for "de"](docs/images/new-entry-dark.png) |
+| ![Today's entries with a running timer, and the week's daily totals](docs/images/today-light.png) | ![The entry form in dark mode, with two favorites over the open project list](docs/images/new-entry-dark.png) |
 | **Settings** | **AI agents** |
 | ![Settings: account, organization, appearance and time format](docs/images/settings-light.png) | ![Settings › AI agents in dark mode: the MCP server's address and key, and the setup to copy for Claude Code and Claude Desktop](docs/images/agents-dark.png) |
 
@@ -105,6 +106,8 @@ In the list, where nothing is typed, a single key is enough (`⌘N` and `⌘R` w
 | Window | `⌘W` / `⌘M` | Close / minimize the window |
 | | `⌘H` | Hide Solidbar (the panel just closes) |
 | Entry form | `⌘1`–`⌘3` | Recent project |
+| | `⌃1`–`⌃9` | Favorite (new entries) |
+| | `⌘D` | Keep as a favorite / forget it |
 | | `⌘[` `⌘]` | The day before / after |
 | | `⌥1`–`⌥8` | Whole hours |
 | | `Space` or type | Open the project list (typing searches) |
