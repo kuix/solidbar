@@ -891,29 +891,6 @@ code {
   fill: currentColor;
 }
 
-.favorites .chips {
-  flex-wrap: wrap;
-  margin-bottom: 0;
-}
-
-.chip.favorite {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-  max-width: 100%;
-  padding: 3px 8px;
-}
-
-.chip.favorite .name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip.favorite .duration {
-  color: var(--text-secondary);
-}
 
 .work-picker {
   position: relative;
@@ -1043,6 +1020,34 @@ code {
 .listbox li.active .option-label .task,
 .listbox li.active .shortcut {
   color: inherit;
+}
+
+/* A favorite's ×, shown on the row under the mouse and the highlighted one. */
+.listbox .remove {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 1.3em;
+  visibility: hidden;
+  opacity: 0.7;
+}
+
+.listbox .remove:hover {
+  opacity: 1;
+}
+
+.listbox li.favorite:hover .remove,
+.listbox li.favorite.active .remove {
+  visibility: visible;
+}
+
+.listbox .remove .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.popup-hint {
+  margin: 4px 8px 0;
 }
 
 /* Like a section of a macOS menu: the client over its projects. */

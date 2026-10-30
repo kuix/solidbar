@@ -9,10 +9,22 @@ async function openPanel(page: Page, fixture: Fixture = signedIn()) {
   await expect(page.getByRole("heading", { name: "Friday, Oct 9" })).toBeVisible();
 }
 
+function withFavorites(): Fixture {
+  const fixture = signedIn();
+  const support = fixture.catalog.options.find((option: any) => option.project_id === "p3");
+  const header = fixture.catalog.options.find((option: any) => option.task_id === "t1");
+  fixture.catalog.favorites = [
+    { option: support, description: "", duration: "0:30", billable: false },
+    { option: header, description: "Weekly", duration: "1:00", billable: true },
+  ];
+  return fixture;
+}
+
+const projectButton = (page: Page) => page.getByRole("button", { name: /^Project and task/ });
+
 test("☆ keeps the form as a favorite, and ⌃1 starts a new entry from it", async ({ page }) => {
   await openPanel(page);
   await page.keyboard.press("Meta+KeyN");
-  await expect(page.getByRole("group", { name: "Favorites" })).toHaveCount(0);
   await page.keyboard.press("Meta+Digit1");
   await page.getByRole("textbox", { name: "Notes" }).fill("Weekly");
   await page.keyboard.press("Alt+Digit1");
@@ -25,16 +37,18 @@ test("☆ keeps the form as a favorite, and ⌃1 starts a new entry from it", as
   ]);
   await page.getByRole("button", { name: "Cancel" }).click();
 
+  // The project list has it after the recent choices.
   await page.keyboard.press("Meta+KeyN");
-  const weekly = page
-    .getByRole("group", { name: "Favorites" })
-    .getByRole("button", { name: "Weekly, Design system › Header, 1 hour" });
+  await expect(projectButton(page)).toBeFocused();
+  await page.keyboard.press("Space");
+  const weekly = page.getByRole("option", { name: "Weekly, Design system › Header, 1 hour" });
   await expect(weekly).toHaveAttribute("aria-keyshortcuts", "Control+1");
-  await expect(star).toHaveAttribute("aria-pressed", "false");
+  await expect(weekly).toHaveAccessibleDescription("⌘⌫ removes the highlighted favorite");
   await expectAccessible(page);
+  await page.keyboard.press("Escape");
 
   await page.keyboard.press("Control+Digit1");
-  await expect(page.getByRole("button", { name: /^Project and task/ })).toBeFocused();
+  await expect(projectButton(page)).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Notes" })).toHaveValue("Weekly");
   await expect(page.getByRole("textbox", { name: "Duration" })).toHaveValue("1:00");
   await expect(star).toHaveAttribute("aria-pressed", "true");
@@ -50,39 +64,55 @@ test("☆ keeps the form as a favorite, and ⌃1 starts a new entry from it", as
   });
 });
 
-test("a click fills the form in with a favorite, and ☆ again forgets it", async ({ page }) => {
-  const fixture = signedIn();
-  const support = fixture.catalog.options.find((option: any) => option.project_id === "p3");
-  fixture.catalog.favorites = [{ option: support, description: "", duration: "0:30", billable: false }];
-  await openPanel(page, fixture);
+test("a favorite chosen in the project list fills the form in", async ({ page }) => {
+  await openPanel(page, withFavorites());
   await page.keyboard.press("Meta+KeyN");
+  await page.keyboard.press("Space");
+  await page.getByRole("option", { name: "Support, 30 minutes" }).click();
 
-  await page.getByRole("button", { name: "Support, 30 minutes" }).click();
-  await expect(page.getByRole("button", { name: /^Project and task/ })).toHaveAccessibleName(/Support/);
+  await expect(projectButton(page)).toBeFocused();
+  await expect(projectButton(page)).toHaveAccessibleName(/Support/);
   await expect(page.getByRole("textbox", { name: "Duration" })).toHaveValue("0:30");
   await expect(page.getByRole("switch", { name: "Billable" })).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Favorite", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
 
-  const star = page.getByRole("button", { name: "Favorite", exact: true });
-  await expect(star).toHaveAttribute("aria-pressed", "true");
-  await star.click();
-  await expect(star).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByRole("group", { name: "Favorites" })).toHaveCount(0);
+test("× and ⌘⌫ remove favorites from the project list", async ({ page }) => {
+  await openPanel(page, withFavorites());
+  await page.keyboard.press("Meta+KeyN");
+  await page.keyboard.press("Space");
+
+  const weekly = page.getByRole("option", { name: "Weekly, Design system › Header, 1 hour" });
+  await weekly.hover();
+  await weekly.locator(".remove").click();
+  await expect(weekly).toHaveCount(0);
+  expect(await invoked(page, "set_favorite")).toEqual([
+    { project_id: "p1", task_id: "t1", description: "Weekly", duration: "1:00", billable: true, favorite: false },
+  ]);
+  // The list stays open, on the search field.
+  await expect(page.getByRole("combobox", { name: "Search projects and tasks" })).toBeFocused();
+
+  // The recent choices, then the favorite: ↓ to it, ⌘⌫ removes it.
+  const support = page.getByRole("option", { name: "Support, 30 minutes" });
+  for (let step = 0; step < 2; step++) await page.keyboard.press("ArrowDown");
+  await expect(support).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Meta+Backspace");
+  await expect(support).toHaveCount(0);
+  await expect(page.getByText("⌘⌫ removes the highlighted favorite")).toHaveCount(0);
   expect(await invoked(page, "set_favorite")).toContainEqual(
     expect.objectContaining({ project_id: "p3", task_id: null, favorite: false }),
   );
-  // Only the favorite is gone; nothing was saved.
+  // Only the favorites are gone; nothing was saved.
   expect(await invoked(page, "save_entry")).toHaveLength(0);
 });
 
 test("editing an entry offers the star but not the favorites", async ({ page }) => {
-  const fixture = signedIn();
-  fixture.catalog.favorites = [
-    { option: fixture.catalog.recents[0], description: "Weekly", duration: "1:00", billable: true },
-  ];
-  await openPanel(page, fixture);
+  await openPanel(page, withFavorites());
   await expect(page.locator("#entry-e1")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Edit time entry" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Favorite", exact: true })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Favorites" })).toHaveCount(0);
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("listbox", { name: "Projects and tasks" })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Weekly/ })).toHaveCount(0);
 });

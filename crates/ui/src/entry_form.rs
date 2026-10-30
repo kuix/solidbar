@@ -7,7 +7,7 @@ use solidbar_shared::duration::parse_minutes;
 use solidbar_shared::ipc::{
     EntryDraft, FavoriteArgs, FormArgs, PrepareForm, SaveEntry, SetFavorite,
 };
-use solidbar_shared::picker;
+use solidbar_shared::picker::{self, Choice};
 use solidbar_shared::view::{EntryKind, FavoriteView, FormInit, WorkOption};
 use wasm_bindgen::JsCast;
 use web_sys::{KeyboardEvent, MouseEvent};
@@ -176,6 +176,26 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
         error.set(None);
         focus_element("work-button");
     });
+
+    // × or ⌘⌫ on a favorite in the project list.
+    let forget_favorite = Callback::new(move |favorite: FavoriteView| {
+        let args = FavoriteArgs {
+            project_id: favorite.option.project_id,
+            task_id: favorite.option.task_id,
+            description: favorite.description,
+            duration: favorite.duration,
+            billable: favorite.billable,
+            favorite: false,
+        };
+        spawn_local(async move {
+            if let Err(problem) = call::<SetFavorite>(&args).await {
+                error.set(Some(problem.message));
+            }
+        });
+    });
+    // Only a new entry starts from a favorite.
+    let offered_favorites =
+        Signal::derive(move || if editing { Vec::new() } else { favorites.get() });
 
     let entry_id = init.entry_id.clone();
     let date = init.date.clone();
@@ -361,26 +381,13 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
                     </Show>
                 </div>
                 {group_note.map(|note| view! { <p class="group-note">{note}</p> })}
-                <Show when=move || !editing && favorites.with(|favorites| !favorites.is_empty())>
-                    <fieldset class="favorites">
-                        <legend>"Favorites"</legend>
-                        <div class="chips">
-                            {move || {
-                                favorites
-                                    .get()
-                                    .into_iter()
-                                    .enumerate()
-                                    .map(|(index, favorite)| {
-                                        view! {
-                                            <FavoriteChip favorite number=index + 1 apply=apply_favorite />
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </div>
-                    </fieldset>
-                </Show>
-                <WorkPicker work pick />
+                <WorkPicker
+                    work
+                    pick
+                    favorites=offered_favorites
+                    apply=apply_favorite
+                    forget=forget_favorite
+                />
                 <label for="notes">"Notes"</label>
                 <textarea
                     id="notes"
@@ -489,50 +496,6 @@ pub fn EntryForm(init: FormInit) -> impl IntoView {
     }
 }
 
-/// A favorite in a new entry's form, named by its notes (or its project) with its duration.
-/// A click or ⌃1–⌃9 fills the form in with it.
-#[component]
-fn FavoriteChip(
-    favorite: FavoriteView,
-    number: usize,
-    apply: Callback<FavoriteView>,
-) -> impl IntoView {
-    let name = if favorite.description.is_empty() {
-        favorite.option.label.clone()
-    } else {
-        favorite.description.clone()
-    };
-    // What it shows first, then the project and the duration in words.
-    let mut spoken = name.clone();
-    if !favorite.description.is_empty() {
-        spoken.push_str(&format!(", {}", favorite.option.label));
-    }
-    if let Ok(minutes) = parse_minutes(&favorite.duration) {
-        spoken.push_str(&format!(", {}", spoken_duration(i64::from(minutes) * 60)));
-    }
-    let shortcut = (number <= 9).then(|| format!("Control+{number}"));
-    let title = match &shortcut {
-        Some(_) => format!("{} (⌃{number})", favorite.option.label),
-        None => favorite.option.label.clone(),
-    };
-    let marker = option_marker(&favorite.option);
-    let duration = favorite.duration.clone();
-    view! {
-        <button
-            type="button"
-            class="chip favorite"
-            aria-label=spoken
-            aria-keyshortcuts=shortcut
-            title=title
-            on:click=move |_| apply.run(favorite.clone())
-        >
-            {marker}
-            <span class="name">{name}</span>
-            {(!duration.is_empty()).then(|| view! { <span class="duration">{duration}</span> })}
-        </button>
-    }
-}
-
 /// Puts the open project list under its button. The list is `position: fixed` so the
 /// scrolling form body doesn't clip it; it follows the button when the body scrolls.
 fn place_work_popup() {
@@ -570,8 +533,16 @@ fn place_work_popup() {
 /// (an APG editable combobox; `aria-activedescendant` points at the highlighted option).
 /// Space, ↓ or a click opens it; typing on the closed button opens it and starts searching, so
 /// ⌘N, "rand", ↩ works. ↩ on the closed button saves the form, as everywhere else in it.
+/// After the recent choices come the favorites, which fill the whole form in (`apply`); ×
+/// or ⌘⌫ removes one (`forget`).
 #[component]
-fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView {
+fn WorkPicker(
+    work: RwSignal<Work>,
+    pick: Callback<WorkOption>,
+    favorites: Signal<Vec<FavoriteView>>,
+    apply: Callback<FavoriteView>,
+    forget: Callback<FavoriteView>,
+) -> impl IntoView {
     let store = expect_context::<Store>();
     let options = Memo::new(move |_| store.catalog.with(|catalog| catalog.options.clone()));
     let query = RwSignal::new(String::new());
@@ -606,9 +577,26 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
     });
     let listing = Memo::new(move |_| {
         let query = query.get();
-        store
-            .catalog
-            .with(|catalog| picker::list(&query, &catalog.options, &catalog.recents))
+        favorites.with(|favorites| {
+            store
+                .catalog
+                .with(|catalog| picker::list(&query, &catalog.options, &catalog.recents, favorites))
+        })
+    });
+    let has_favorites = Memo::new(move |_| {
+        listing.with(|listing| {
+            listing
+                .options
+                .iter()
+                .any(|choice| matches!(choice, Choice::Favorite(_)))
+        })
+    });
+    // A removed favorite takes its row away; the highlight stays in the list.
+    Effect::new(move |_| {
+        let count = listing.with(|listing| listing.options.len());
+        if count > 0 && active.get_untracked() >= count {
+            active.set(count - 1);
+        }
     });
 
     let open_with = move |text: String| {
@@ -618,8 +606,11 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
         let chosen =
             work.with_untracked(|work| work.project_id.is_some() || work.kind == EntryKind::Break);
         let start = listing.with_untracked(|listing| {
-            let current =
-                (text.is_empty() && chosen).then(|| listing.options.iter().position(is_selected));
+            let current = (text.is_empty() && chosen).then(|| {
+                listing.options.iter().position(
+                    |choice| matches!(choice, Choice::Work(option) if is_selected(option)),
+                )
+            });
             current.flatten().or(listing.best).unwrap_or(0)
         });
         active.set(start);
@@ -645,8 +636,11 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
             focus_element("work-button");
         }
     };
-    let choose = move |option: WorkOption| {
-        pick.run(option);
+    let choose = move |choice: Choice| {
+        match choice {
+            Choice::Work(option) => pick.run(option),
+            Choice::Favorite(favorite) => apply.run(favorite),
+        }
         close(true);
     };
 
@@ -728,6 +722,16 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
         } else if keys.is("Escape") {
             close(true);
             true
+        } else if keys.is("Meta+Backspace") {
+            let highlighted = listing
+                .with_untracked(|listing| listing.options.get(active.get_untracked()).cloned());
+            match highlighted {
+                Some(Choice::Favorite(favorite)) => {
+                    forget.run(favorite);
+                    true
+                }
+                _ => false,
+            }
         } else {
             false
         };
@@ -828,6 +832,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                             };
                             match item.1 {
                                 picker::Row::Recents => heading("Recently used".to_owned()),
+                                picker::Row::Favorites => heading("Favorites".to_owned()),
                                 picker::Row::Client(client) => {
                                     heading(client.unwrap_or_else(|| "No client".to_owned()))
                                 }
@@ -875,7 +880,7 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                                             aria-label=spoken
                                             aria-keyshortcuts=recent.map(|number| format!("Meta+{number}"))
                                             on:mousedown=keep_focus
-                                            on:click=move |_| choose(option.clone())
+                                            on:click=move |_| choose(Choice::Work(option.clone()))
                                         >
                                             {marker}
                                             <span class="option-label">{name}</span>
@@ -894,6 +899,19 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                                     }
                                         .into_any()
                                 }
+                                picker::Row::Favorite { position, favorite, key } => {
+                                    view! {
+                                        <FavoriteOption
+                                            position
+                                            favorite
+                                            key
+                                            active
+                                            choose=Callback::new(move |favorite| choose(Choice::Favorite(favorite)))
+                                            forget
+                                        />
+                                    }
+                                        .into_any()
+                                }
                             }
                         }
                     </For>
@@ -901,6 +919,9 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                         <li class="empty" role="presentation">"No matching projects"</li>
                     </Show>
                 </ul>
+                <Show when=move || has_favorites.get()>
+                    <p id="favorite-hint" class="help popup-hint">"⌘⌫ removes the highlighted favorite"</p>
+                </Show>
                 <p class="sr-only" aria-live="polite">
                     {move || {
                         if open.get() {
@@ -917,6 +938,84 @@ fn WorkPicker(work: RwSignal<Work>, pick: Callback<WorkOption>) -> impl IntoView
                 </p>
             </div>
         </div>
+    }
+}
+
+/// A favorite in the project list: its notes (or its project and task) and duration, with its
+/// ⌃ number, and a × under the mouse that removes it (⌘⌫ from the keyboard).
+#[component]
+fn FavoriteOption(
+    position: usize,
+    favorite: FavoriteView,
+    key: Option<usize>,
+    active: RwSignal<usize>,
+    choose: Callback<FavoriteView>,
+    forget: Callback<FavoriteView>,
+) -> impl IntoView {
+    let keep_focus = |event: MouseEvent| event.prevent_default();
+    let (project, task) = split_label(&favorite.option);
+    let name = if favorite.description.is_empty() {
+        view! {
+            {project}
+            {task.map(|task| view! { <span class="task">{format!(" › {task}")}</span> })}
+        }
+        .into_any()
+    } else {
+        view! {
+            {favorite.description.clone()}
+            <span class="task">{format!(" · {}", favorite.option.label)}</span>
+        }
+        .into_any()
+    };
+    // What it shows first, then the project and the duration in words.
+    let mut spoken = if favorite.description.is_empty() {
+        favorite.option.label.clone()
+    } else {
+        format!("{}, {}", favorite.description, favorite.option.label)
+    };
+    if let Ok(minutes) = parse_minutes(&favorite.duration) {
+        spoken.push_str(&format!(", {}", spoken_duration(i64::from(minutes) * 60)));
+    }
+    let marker = option_marker(&favorite.option);
+    let duration = favorite.duration.clone();
+    let removed = favorite.clone();
+    view! {
+        <li
+            role="option"
+            id=format!("work-option-{position}")
+            class="favorite"
+            class:active=move || active.get() == position
+            aria-selected=move || (active.get() == position).to_string()
+            aria-label=spoken
+            aria-describedby="favorite-hint"
+            aria-keyshortcuts=key.map(|number| format!("Control+{number}"))
+            on:mousedown=keep_focus
+            on:click=move |_| choose.run(favorite.clone())
+        >
+            {marker}
+            <span class="option-label">{name}</span>
+            {(!duration.is_empty()).then(|| view! { <span class="shortcut" aria-hidden="true">{duration}</span> })}
+            {key
+                .map(|number| {
+                    view! {
+                        <span class="shortcut" aria-hidden="true">
+                            {format!("⌃{number}")}
+                        </span>
+                    }
+                })}
+            <span
+                class="remove"
+                aria-hidden="true"
+                title="Remove from favorites (⌘⌫)"
+                on:mousedown=keep_focus
+                on:click=move |event| {
+                    event.stop_propagation();
+                    forget.run(removed.clone());
+                }
+            >
+                {icons::cross()}
+            </span>
+        </li>
     }
 }
 

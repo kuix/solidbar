@@ -77,6 +77,11 @@ pub fn star() -> impl IntoView {
     )
 }
 
+/// An ×, for removing.
+pub fn cross() -> impl IntoView {
+    icon("m4.5 4.5 7 7m0-7-7 7")
+}
+
 /// A cup, for breaks.
 pub fn cup() -> impl IntoView {
     icon(

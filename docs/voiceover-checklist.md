@@ -38,7 +38,8 @@ Use a build installed in `/Applications`, with System Settings › Accessibility
 - [ ] `⌘1`/`⌘2` pick recent projects; VO reads the new value of the pop-up button.
 - [ ] `⌥2` selects "2 hours" (button reads as selected) and fills the duration.
 - [ ] `⌘D` presses "Favorite, toggle button" and VO announces "Added to favorites"; `⌘D` again announces "Removed from favorites".
-- [ ] With favorites, a new entry's form has a "Favorites" group whose buttons read as e.g. "Weekly, Internal › Planning, 1 hour" with `⌃1`; `⌃1` fills the form in, VO lands on the pop-up button, which reads the favorite's project, and `↩` saves.
+- [ ] With favorites, a new entry's project list has them after the recent choices, read as e.g. "Weekly, Internal › Planning, 1 hour" with `⌃1` and "⌘⌫ removes the highlighted favorite"; `↩` on one fills the form in and VO is back on the pop-up button, which reads the favorite's project; `⌘⌫` on one announces "Removed from favorites" and the list stays open.
+- [ ] `⌃1` with the list closed fills the form in the same way, and `↩` saves.
 - [ ] An invalid duration reads as invalid with its error message.
 - [ ] `↩` saves, VO announces "Added 2 hours", and focus returns to the list.
 - [ ] `⎋` (with the list closed) cancels and focus returns to the entry it came from.

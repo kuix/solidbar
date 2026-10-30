@@ -1,12 +1,12 @@
 //! The project and task picker's list: what matches the search, grouped under clients and
 //! projects, so a row names only its task and the long names fit. Without a search, the
-//! recently used choices come first.
+//! recently used choices come first, then the favorites.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use crate::fuzzy;
-use crate::view::WorkOption;
+use crate::view::{FavoriteView, WorkOption};
 
 /// How many matches are listed at most.
 pub const LIMIT: usize = 200;
@@ -14,10 +14,24 @@ pub const LIMIT: usize = 200;
 /// How many recently used choices the list starts with; ⌘1–⌘3 pick them too.
 pub const RECENTS: usize = 3;
 
+/// How many favorites have a shortcut, ⌃1–⌃9.
+pub const FAVORITE_KEYS: usize = 9;
+
+/// What picking an option does.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Choice {
+    /// Chooses the project and task (or "No project", or "Break").
+    Work(WorkOption),
+    /// Fills the form in with a favorite: its project, task, notes, duration and billable.
+    Favorite(FavoriteView),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Row {
     /// "Recently used", over the recent choices at the top.
     Recents,
+    /// "Favorites", over the favorites after the recent choices.
+    Favorites,
     /// A client's name over its projects; `None` over the projects without a client. There
     /// are no headings when no project has a client.
     Client(Option<String>),
@@ -32,13 +46,19 @@ pub enum Row {
         task: bool,
         recent: Option<usize>,
     },
+    /// The `position`th of [`List::options`], a favorite; `key` is its ⌃ number.
+    Favorite {
+        position: usize,
+        favorite: FavoriteView,
+        key: Option<usize>,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct List {
     pub rows: Vec<Row>,
     /// The options top to bottom: what ↑ and ↓ move through.
-    pub options: Vec<WorkOption>,
+    pub options: Vec<Choice>,
     /// Where in `options` the best match is, for the highlight to start on.
     pub best: Option<usize>,
     /// How many options match. A project is also listed when only its tasks do.
@@ -59,8 +79,14 @@ struct Section<'a> {
 /// Lists the options matching `query`. Clients with better matches come first, then by name,
 /// and the projects without a client after them; projects and tasks keep the catalog's
 /// order among equal matches. "No project" and "Break" come last. Without a search, the
-/// first [`RECENTS`] of `recents` come before everything, and the highlight starts on top.
-pub fn list(query: &str, options: &[WorkOption], recents: &[WorkOption]) -> List {
+/// first [`RECENTS`] of `recents` and then the `favorites` come before everything, and the
+/// highlight starts on top.
+pub fn list(
+    query: &str,
+    options: &[WorkOption],
+    recents: &[WorkOption],
+    favorites: &[FavoriteView],
+) -> List {
     let browsing = query.split_whitespace().next().is_none();
     let scores: Vec<Option<u32>> = options
         .iter()
@@ -145,10 +171,14 @@ pub fn list(query: &str, options: &[WorkOption], recents: &[WorkOption]) -> List
             task,
             recent: None,
         });
-        list.options.push(options[index].clone());
+        list.options.push(Choice::Work(options[index].clone()));
         listed.push(index);
     };
-    let recents = if browsing { recents } else { &[] };
+    let (recents, favorites) = if browsing {
+        (recents, favorites)
+    } else {
+        (&[][..], &[][..])
+    };
     for (number, option) in recents.iter().take(RECENTS).enumerate() {
         if number == 0 {
             list.rows.push(Row::Recents);
@@ -159,9 +189,20 @@ pub fn list(query: &str, options: &[WorkOption], recents: &[WorkOption]) -> List
             task: false,
             recent: Some(number + 1),
         });
-        list.options.push(option.clone());
+        list.options.push(Choice::Work(option.clone()));
     }
-    let after_recents = list.rows.len();
+    for (number, favorite) in favorites.iter().enumerate() {
+        if number == 0 {
+            list.rows.push(Row::Favorites);
+        }
+        list.rows.push(Row::Favorite {
+            position: list.options.len(),
+            favorite: favorite.clone(),
+            key: (number < FAVORITE_KEYS).then_some(number + 1),
+        });
+        list.options.push(Choice::Favorite(favorite.clone()));
+    }
+    let after_top = list.rows.len();
     let headings = sections.iter().any(|section| section.client.is_some());
     for section in &sections {
         if headings {
@@ -175,16 +216,16 @@ pub fn list(query: &str, options: &[WorkOption], recents: &[WorkOption]) -> List
             }
         }
     }
-    if list.rows.len() > after_recents && !others.is_empty() {
+    if list.rows.len() > after_top && !others.is_empty() {
         list.rows.push(Row::Divider);
     }
     for &other in &others {
         add(&mut list, other, false);
     }
-    // Without a client heading after them, a line ends the recent choices.
-    let next = list.rows.get(after_recents);
-    if after_recents > 0 && next.is_some_and(|row| !matches!(row, Row::Client(_))) {
-        list.rows.insert(after_recents, Row::Divider);
+    // Without a client heading after them, a line ends the recent choices and favorites.
+    let next = list.rows.get(after_top);
+    if after_top > 0 && next.is_some_and(|row| !matches!(row, Row::Client(_))) {
+        list.rows.insert(after_top, Row::Divider);
     }
 
     list.best = if browsing {
@@ -259,6 +300,11 @@ mod tests {
             .iter()
             .map(|row| match row {
                 Row::Recents => "# Recently used".to_owned(),
+                Row::Favorites => "# Favorites".to_owned(),
+                Row::Favorite { favorite, key, .. } => match key {
+                    Some(key) => format!("⌃{key} {}", favorite.description),
+                    None => favorite.description.clone(),
+                },
                 Row::Client(Some(client)) => format!("# {client}"),
                 Row::Client(None) => "# No client".to_owned(),
                 Row::Divider => "---".to_owned(),
@@ -278,7 +324,7 @@ mod tests {
 
     #[test]
     fn everything_is_grouped_under_clients_by_name() {
-        let list = list("", &catalog(), &[]);
+        let list = list("", &catalog(), &[], &[]);
         assert_eq!(
             rows(&list),
             [
@@ -303,14 +349,16 @@ mod tests {
 
     #[test]
     fn a_task_is_listed_under_its_project_and_the_highlight_starts_on_it() {
-        let list = list("deploy", &catalog(), &[]);
+        let list = list("deploy", &catalog(), &[], &[]);
         assert_eq!(
             rows(&list),
             ["# Allee Center", "Allee Support", "  Deployment"]
         );
         assert_eq!(list.matched, 1);
         assert_eq!(list.best, Some(1));
-        assert_eq!(list.options[1].task_id.as_deref(), Some("t2"));
+        assert!(
+            matches!(&list.options[1], Choice::Work(option) if option.task_id.as_deref() == Some("t2"))
+        );
     }
 
     #[test]
@@ -321,13 +369,13 @@ mod tests {
         ];
         // "port" starts a word in Portal, and is only inside one in Support.
         assert_eq!(
-            rows(&list("port", &options, &[])),
+            rows(&list("port", &options, &[], &[])),
             ["# Zed", "Portal", "# Acme", "Support"]
         );
 
         // A client's name finds all its projects.
         assert_eq!(
-            rows(&list("lavylites", &catalog(), &[])),
+            rows(&list("lavylites", &catalog(), &[], &[])),
             [
                 "# Lavylites",
                 "Lavylites Support",
@@ -342,10 +390,10 @@ mod tests {
         let admin = project("p1", "Admin", None);
         let options = vec![admin.clone(), task(&admin, "t1", "Email"), no_project()];
         assert_eq!(
-            rows(&list("", &options, &[])),
+            rows(&list("", &options, &[], &[])),
             ["Admin", "  Email", "---", "No project"]
         );
-        assert_eq!(rows(&list("no", &options, &[])), ["No project"]);
+        assert_eq!(rows(&list("no", &options, &[], &[])), ["No project"]);
     }
 
     #[test]
@@ -353,7 +401,7 @@ mod tests {
         let options = catalog();
         // Most recent first, as the backend sends them.
         let recents = [&options[5], &options[0], &options[2], &options[6]].map(Clone::clone);
-        let list = list("", &options, &recents);
+        let list = list("", &options, &recents, &[]);
         assert_eq!(
             rows(&list)[..5],
             [
@@ -378,7 +426,7 @@ mod tests {
         let admin = project("p1", "Admin", None);
         let options = vec![admin.clone(), task(&admin, "t1", "Email"), no_project()];
         assert_eq!(
-            rows(&list("", &options, &[options[1].clone()])),
+            rows(&list("", &options, &[options[1].clone()], &[])),
             [
                 "# Recently used",
                 "⌘1 Admin › Email",
@@ -391,13 +439,72 @@ mod tests {
         );
     }
 
+    fn favorite(option: &WorkOption, description: &str) -> FavoriteView {
+        FavoriteView {
+            option: option.clone(),
+            description: description.to_owned(),
+            duration: "1:00".to_owned(),
+            billable: true,
+        }
+    }
+
+    #[test]
+    fn the_favorites_follow_the_recent_choices() {
+        let options = catalog();
+        let recents = [options[0].clone()];
+        let favorites = [
+            favorite(&options[2], "Weekly"),
+            favorite(&options[6], "Standup"),
+        ];
+        let list = list("", &options, &recents, &favorites);
+        assert_eq!(
+            rows(&list)[..6],
+            [
+                "# Recently used",
+                "⌘1 Admin",
+                "# Favorites",
+                "⌃1 Weekly",
+                "⌃2 Standup",
+                "# Allee Center",
+            ]
+        );
+        assert_eq!(list.options.len(), 1 + 2 + 8);
+        assert_eq!(list.options[1], Choice::Favorite(favorites[0].clone()));
+        // The highlight still starts on the most recent choice.
+        assert_eq!(list.best, Some(0));
+
+        // A search lists only the projects and tasks that match.
+        assert_eq!(
+            rows(&super::list("weekly", &options, &recents, &favorites)),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn without_client_headings_a_line_ends_the_favorites() {
+        let admin = project("p1", "Admin", None);
+        let options = vec![admin.clone(), no_project()];
+        let favorites = [favorite(&admin, "Weekly")];
+        assert_eq!(
+            rows(&list("", &options, &[], &favorites)),
+            [
+                "# Favorites",
+                "⌃1 Weekly",
+                "---",
+                "Admin",
+                "---",
+                "No project"
+            ]
+        );
+    }
+
     fn list_with(query: &str, recents: &[WorkOption]) -> List {
-        list(query, &catalog(), recents)
+        list(query, &catalog(), recents, &[])
     }
 
     #[test]
     fn nothing_matching_lists_nothing() {
-        let list = list("zzz", &catalog(), &[]);
+        let list = list("zzz", &catalog(), &[], &[]);
         assert_eq!(list, List::default());
     }
 }
