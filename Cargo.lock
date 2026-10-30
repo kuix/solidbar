@@ -4737,7 +4737,7 @@ dependencies = [
 
 [[package]]
 name = "solidbar"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "auto-launch",
  "jiff",
@@ -4762,7 +4762,7 @@ dependencies = [
 
 [[package]]
 name = "solidbar-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.23.1",
@@ -4788,7 +4788,7 @@ dependencies = [
 
 [[package]]
 name = "solidbar-shared"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "jiff",
  "serde",
@@ -4798,7 +4798,7 @@ dependencies = [
 
 [[package]]
 name = "solidbar-ui"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "console_error_panic_hook",
  "jiff",
